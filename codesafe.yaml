@@ -1,6 +1,24 @@
 lang: zh
 allow_none: true
 prefix_conflict: override
+
+# 本项目的 scope 集：按 internal/ 包的功能域划分。
+scopes:
+  cli:       "命令行入口与子命令：参数解析、diff/commit 子命令、主流程编排"
+  classify:  "commit 分类核心：type/scope/breaking 问题构造与判定"
+  rules:     "自定义规则检查：codesafe.yaml rules/commit_rules 的批量判定"
+  screen:    "scope 筛选：按目录结构+README 判定形态域 scope 是否有边界"
+  render:    "终端输出渲染：单行建议与 detail 详情"
+  config:    "配置持久化：config.json 与 codesafe.yaml 的读写"
+  typesafe:  "TypeSafe API 客户端：请求构造、重试、用量解析"
+  git:       "git 操作：diff 提取、repo 根定位、commit 执行"
+  main:      "cmd/codesafe 入口"
+  install:   "install.sh 安装脚本"
+  deps:      "依赖清单变更（go.mod/go.sum）"
+  ci:        "CI / release workflow"
+  docs:      "文档（README 等）"
+  test:      "测试"
+
 rules:
   - id: file-purpose
     level: error
@@ -14,6 +32,7 @@ rules:
     text: 每个函数必须有注释（小函数单行、大函数多行）
     pass: 所有函数都有注释
     fail: 存在无注释的函数
+
 commit_rules:
   - id: subject-zh
     on: subject
