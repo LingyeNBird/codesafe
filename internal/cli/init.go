@@ -63,11 +63,18 @@ files, then fill in codesafe.yaml for it. Write:
 
   scopes        — the functional areas/modules this project actually has
                   (derive from real top-level dirs / packages, not generic words).
-  rules         — this project's own code conventions that a diff can violate
-                  (style/architecture constraints specific to THIS codebase).
+  rules         — this project's own code conventions that a diff can violate.
                   Each rule: id, level (error|warn), files (glob), text (the rule),
                   pass (what satisfies it), fail (what violates it).
   commit_rules  — rules about the commit message itself (language, format, etc).
+
+IMPORTANT — model capability boundary. The judging model does semantic matching /
+classification only. It can tell whether a diff CONTAINS a pattern (an inline
+<style>, a hardcoded color, a missing comment) or which category a change falls
+into. It CANNOT reason about correctness: never write rules that ask it to find
+bugs, verify logic, check edge cases, or judge whether code is right. Keep rules
+to things visible on the diff's surface — formatting, structure, naming, file
+placement, presence/absence of a construct.
 
 If you are unsure of the exact field format, run "codesafe init --sample" to see
 a filled-in example.
