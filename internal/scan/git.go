@@ -39,9 +39,14 @@ func StagedDiff(dir string) (string, error) {
 	return gitDiff(dir, "--cached")
 }
 
-// WorktreeDiff 返回工作区相对 HEAD 的 diff（git diff HEAD，含未暂存改动）。
+// WorktreeDiff 返回工作区相对 HEAD 的全部 diff（git diff HEAD，含暂存+未暂存）。
 func WorktreeDiff(dir string) (string, error) {
 	return gitDiff(dir, "HEAD")
+}
+
+// UnstagedDiff 返回未暂存部分的 diff（git diff，不含已 add 的）。
+func UnstagedDiff(dir string) (string, error) {
+	return gitDiff(dir)
 }
 
 // CommitDiff 返回指定 commit 的 diff（git show <rev>，含 subject 行）。

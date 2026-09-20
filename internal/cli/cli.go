@@ -21,8 +21,22 @@ import (
 	"codesafe/internal/typesafe"
 )
 
-// Run 是 CLI 主流程，返回非 nil error 时由调用方退出非零。
+// Run 是 CLI 主流程：分发子命令（diff/commit）或默认的 classify。
+
 func Run(args []string) error {
+	if len(args) > 0 {
+		switch args[0] {
+		case "diff":
+			return runDiff(args[1:])
+		case "commit":
+			return runCommit(args[1:])
+		}
+	}
+	return runClassify(args)
+}
+
+// runClassify 是默认的 commit 分类流程。
+func runClassify(args []string) error {
 	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
 	var (
 		dir     = fs.String("dir", ".", "git repo directory (default: current)")

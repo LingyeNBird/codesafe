@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 var ErrNoAPIKey = errors.New("api key not configured")
@@ -162,14 +164,28 @@ func AllowNoneOf(cfg Config) bool {
 	return cfg.AllowNone == nil || *cfg.AllowNone
 }
 
-// ProjectConfig 是项目根 codesafe.yaml 的内容：项目自定义 scope 与 allow_none 开关。
+// ProjectConfig 是项目根 codesafe.yaml 的内容：scope 集、none 开关、自定义代码/提交规则、前缀冲突策略。
 type ProjectConfig struct {
-	Scopes    map[string]string `yaml:"scopes"`
-	AllowNone *bool             `yaml:"allow_none"` // 显式 false 时禁止 scope=none
+	Scopes         map[string]string `yaml:"scopes"`
+	AllowNone      *bool             `yaml:"allow_none"`
+	Rules          []Rule            `yaml:"rules"`           // 代码规则：diff 检查
+	CommitRules    []Rule            `yaml:"commit_rules"`    // 提交规则：commit message 检查
+	PrefixConflict string            `yaml:"prefix_conflict"` // keep_user | override（默认）
+}
+
+// Rule 是一条自定义规则。text 是给模型的判定说明，pass/fail 是 true/false 分支的描述。
+// files 是 glob（diff 含匹配文件才问）；level 是 error(默认,中断)|warn(只提示)；on 是 commit 规则作用域。
+type Rule struct {
+	ID    string `yaml:"id"`
+	Level string `yaml:"level"` // error | warn
+	Files string `yaml:"files"` // glob，如 "*.vue"；空=对所有 diff 生效
+	Text  string `yaml:"text"`  // 判定说明（instructions）
+	Pass  string `yaml:"pass"`  // 满足时的描述
+	Fail  string `yaml:"fail"`  // 违反时的描述
+	On    string `yaml:"on"`    // commit_rules 用：subject|body|prefix|all
 }
 
 // LoadProject 读取 dir 下的 codesafe.yaml / codesafe.yml；不存在返回空配置。
-// 手写极简解析：只认顶层 "scopes:" 后跟 "- name" 或 "- name: desc" 行。
 func LoadProject(dir string) (ProjectConfig, error) {
 	var pc ProjectConfig
 	var path string
@@ -187,74 +203,8 @@ func LoadProject(dir string) (ProjectConfig, error) {
 	if err != nil {
 		return pc, fmt.Errorf("cannot read %s: %w", path, err)
 	}
-	pc.Scopes = parseScopes(string(data))
-	pc.AllowNone = parseAllowNone(string(data))
+	if err := yaml.Unmarshal(data, &pc); err != nil {
+		return pc, fmt.Errorf("cannot parse %s: %w", path, err)
+	}
 	return pc, nil
-}
-
-// parseAllowNone 解析顶层 "allow_none: false"；缺省返回 nil（默认允许）。
-func parseAllowNone(y string) *bool {
-	for _, raw := range strings.Split(y, "\n") {
-		trim := strings.TrimSpace(raw)
-		if strings.HasPrefix(trim, "allow_none:") {
-			v := strings.TrimSpace(strings.TrimPrefix(trim, "allow_none:"))
-			if b, err := parseBool(strings.Trim(v, `"'`)); err == nil {
-				return &b
-			}
-		}
-	}
-	return nil
-}
-
-// parseScopes 解析 codesafe.yaml 的 scopes 段。支持两种写法：
-//
-//	scopes:
-//	  - server
-//	  - web: frontend UI
-//
-// 或行内 map：scopes: {server: "", web: frontend UI}
-func parseScopes(y string) map[string]string {
-	out := map[string]string{}
-	lines := strings.Split(y, "\n")
-	inScopes := false
-	for _, raw := range lines {
-		line := strings.TrimRight(raw, " \t")
-		trim := strings.TrimSpace(line)
-		if trim == "" || strings.HasPrefix(trim, "#") {
-			continue
-		}
-		if !inScopes {
-			if strings.HasPrefix(trim, "scopes:") {
-				rest := strings.TrimSpace(strings.TrimPrefix(trim, "scopes:"))
-				if rest != "" { // 行内 map
-					rest = strings.Trim(rest, "{}")
-					for _, kv := range strings.Split(rest, ",") {
-						k, v, _ := strings.Cut(kv, ":")
-						k = strings.TrimSpace(strings.Trim(k, `"'`))
-						v = strings.TrimSpace(strings.Trim(v, `"'`))
-						if k != "" {
-							out[k] = v
-						}
-					}
-					return out
-				}
-				inScopes = true
-			}
-			continue
-		}
-		// 在 scopes 段内：只收 "- name[: desc]" 行；遇到新的顶层键退出
-		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "\t") {
-			break
-		}
-		if strings.HasPrefix(trim, "-") {
-			entry := strings.TrimSpace(strings.TrimPrefix(trim, "-"))
-			name, desc, _ := strings.Cut(entry, ":")
-			name = strings.TrimSpace(strings.Trim(name, `"'`))
-			desc = strings.TrimSpace(strings.Trim(desc, `"'`))
-			if name != "" {
-				out[name] = desc
-			}
-		}
-	}
-	return out
 }

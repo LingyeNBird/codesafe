@@ -1,0 +1,22 @@
+lang: zh
+allow_none: true
+prefix_conflict: override
+rules:
+  - id: file-purpose
+    level: error
+    files: "*.go"
+    text: 每个 .go 文件顶部必须有注明文件用途的注释
+    pass: 所有新增/修改的 .go 文件顶部都有用途注释
+    fail: 存在 .go 文件缺少顶部用途注释
+  - id: func-comment
+    level: error
+    files: "*.go"
+    text: 每个函数必须有注释（小函数单行、大函数多行）
+    pass: 所有函数都有注释
+    fail: 存在无注释的函数
+commit_rules:
+  - id: subject-zh
+    on: subject
+    text: subject 必须是中文（专业名词可用英文，主体语言必须中文）
+    pass: subject 主体语言为中文
+    fail: subject 不是中文
