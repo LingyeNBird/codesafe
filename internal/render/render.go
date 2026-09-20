@@ -37,6 +37,14 @@ var i18n = map[string]map[string]string{
 		"skip": "skipped", "error": "error",
 		"dryrun_header": "Would scan %d files (skips marked):",
 		"summary":       "Summary: %d requests, %d errors, %d skipped | %d tokens in | total %v | avg %.1fs/req",
+		"legend": "Legend: each percentage is the model's confidence that the file HAS that problem (higher = more likely a real issue).\n" +
+			"  bug        — runtime defects, crashes, incorrect behavior\n" +
+			"  security   — injection, hardcoded credentials, insecure deserialization, missing authz, data leaks\n" +
+			"  data       — SQL concatenation, missing transactions, unparameterized queries\n" +
+			"  deps       — import usage inconsistent with the library's conventional API (existence assumed)\n" +
+			"  logic      — self-contradictory logic, dead code, always-true/false conditions, boundary errors\n" +
+			"  format     — (config/doc files only) malformed syntax a parser would reject\n" +
+			"Note: results are model-generated judgments, not guaranteed — treat as triage hints, not proof.",
 	},
 	"zh": {
 		"bug": "缺陷", "security": "安全", "data_ops": "数据",
@@ -44,6 +52,14 @@ var i18n = map[string]map[string]string{
 		"skip": "跳过", "error": "错误",
 		"dryrun_header": "将扫描 %d 个文件（跳过项标注）:",
 		"summary":       "汇总: %d 次请求, %d 个失败, %d 个跳过 | 共 %d 输入 token | 总耗时 %v | 平均 %.1fs/次",
+		"legend": "说明：百分比是模型判断该文件【存在】对应问题的置信度（越高越可能真有问题）。\n" +
+			"  缺陷 — 运行时错误、崩溃、行为不正确\n" +
+			"  安全 — 注入、硬编码凭据、不安全反序列化、缺权限校验、数据泄漏\n" +
+			"  数据 — SQL 拼接、缺事务、未参数化查询\n" +
+			"  依赖 — import 用法与库的常规 API 不一致（假设模块存在）\n" +
+			"  逻辑 — 自相矛盾的逻辑、死代码、恒真/恒假条件、边界错误\n" +
+			"  格式 — （仅配置/文档文件）标准解析器会拒绝的格式错误\n" +
+			"注意：结果由模型生成，不保证质量，仅供参考。",
 	},
 }
 
@@ -157,4 +173,9 @@ func Summary(s scan.Stats, lang string) string {
 	}
 	return dim + fmt.Sprintf(T(lang, "summary"),
 		s.Requests, s.Errors, s.Skipped, s.TokensIn, s.TotalTime, avg) + reset + "\n"
+}
+
+// Legend 渲染维度与百分比含义的说明块，置于统计行之前。
+func Legend(lang string) string {
+	return dim + T(lang, "legend") + reset + "\n\n"
 }

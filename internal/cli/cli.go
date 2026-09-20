@@ -127,6 +127,7 @@ func Run(args []string) error {
 	}
 	fmt.Print(render.Table(results, *width, cfg.Lang, cfg.Glyph))
 	if !*dryRun {
+		fmt.Print(render.Legend(cfg.Lang))
 		fmt.Print(render.Summary(scan.Summarize(results, totalTime), cfg.Lang))
 	}
 	return nil
