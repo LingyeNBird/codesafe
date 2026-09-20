@@ -114,3 +114,7 @@ Get one at [console.typesafe.ai](https://console.typesafe.ai). First run prompts
 ## License
 
 [AGPL-3.0-or-later](COPYING)
+
+## Links
+
+- [linux.do](https://linux.do)

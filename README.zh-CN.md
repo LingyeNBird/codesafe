@@ -114,3 +114,7 @@ commit_rules:              # 针对 commit message 本身的规则
 ## License
 
 [AGPL-3.0-or-later](COPYING)
+
+## 友链
+
+- [linux.do](https://linux.do)
