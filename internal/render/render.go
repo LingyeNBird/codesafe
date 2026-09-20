@@ -9,6 +9,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"codesafe/internal/scan"
 )
@@ -36,7 +37,7 @@ var i18n = map[string]map[string]string{
 		"dependency": "deps", "logic": "logic", "format": "format",
 		"skip": "skipped", "error": "error",
 		"dryrun_header": "Would scan %d files (skips marked):",
-		"summary":       "Summary: %d requests, %d errors, %d skipped | %d tokens in | total %v | avg %.1fs/req",
+		"summary":       "Summary: %d requests, %d errors, %d skipped | %d tokens in (~$%.4f) | total %v | avg %.1fs/req",
 		"legend": "Legend: each percentage is the model's confidence that the file HAS that problem (higher = more likely a real issue).\n" +
 			"  bug        — runtime defects, crashes, incorrect behavior\n" +
 			"  security   — injection, hardcoded credentials, insecure deserialization, missing authz, data leaks\n" +
@@ -51,7 +52,7 @@ var i18n = map[string]map[string]string{
 		"dependency": "依赖", "logic": "逻辑", "format": "格式",
 		"skip": "跳过", "error": "错误",
 		"dryrun_header": "将扫描 %d 个文件（跳过项标注）:",
-		"summary":       "汇总: %d 次请求, %d 个失败, %d 个跳过 | 共 %d 输入 token | 总耗时 %v | 平均 %.1fs/次",
+		"summary":       "汇总: %d 次请求, %d 个失败, %d 个跳过 | 共 %d 输入 token（约 $%.4f）| 总耗时 %v | 平均 %.1fs/次",
 		"legend": "说明：百分比是模型判断该文件【存在】对应问题的置信度（越高越可能真有问题）。\n" +
 			"  缺陷 — 运行时错误、崩溃、行为不正确\n" +
 			"  安全 — 注入、硬编码凭据、不安全反序列化、缺权限校验、数据泄漏\n" +
@@ -165,14 +166,16 @@ func Table(results []scan.FileResult, width int, lang, glyphMode string) string 
 	return b.String()
 }
 
-// Summary 渲染末尾聚合统计行。
+// Summary 渲染末尾聚合统计行；耗时四舍五入到毫秒，金额按 $0.042/Mtok 输入估算。
 func Summary(s scan.Stats, lang string) string {
 	var avg float64
 	if s.Requests > 0 {
 		avg = s.SumReqTime.Seconds() / float64(s.Requests)
 	}
+	cost := float64(s.TokensIn) * 0.042 / 1e6 // jev-1.13 输入价 $0.042/Mtok，输出免费
+	total := s.TotalTime.Round(time.Millisecond)
 	return dim + fmt.Sprintf(T(lang, "summary"),
-		s.Requests, s.Errors, s.Skipped, s.TokensIn, s.TotalTime, avg) + reset + "\n"
+		s.Requests, s.Errors, s.Skipped, s.TokensIn, cost, total, avg) + reset + "\n"
 }
 
 // Legend 渲染维度与百分比含义的说明块，置于统计行之前。
