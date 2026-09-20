@@ -85,11 +85,11 @@ to every project — only rules specific to this one.
 `
 
 // sampleYAML 是填好值的示例配置——AI/用户看不懂注释模板时参考这个。
-const sampleYAML = `lang: zh
-allow_none: true
-prefix_conflict: override
+const sampleYAML = `lang: zh                        # en | zh — output language
+allow_none: true                # allow scope=none for cross-cutting commits
+prefix_conflict: override       # keep_user | override — what to do when -m already has type(scope):
 
-scopes:
+scopes:                          # this project's scope vocabulary — name: description pairs
   cli:     "command-line entrypoint / flag parsing"
   api:     "HTTP/RPC server layer"
   db:      "database / migrations"
@@ -97,10 +97,10 @@ scopes:
   ci:      "CI / release workflows"
   docs:    "documentation"
 
-rules:
-  - id: vue-css-split
-    level: error
-    files: "*.vue"
+rules:                           # code rules checked against the diff (diff / commit)
+  - id: vue-css-split            # unique rule id
+    level: error                 # error | warn — error aborts, warn only prints
+    files: "*.vue"               # glob — rule only applies when the diff touches these files
     text: .vue files must not contain <style> blocks; CSS goes to a sibling .css file
     pass: all .vue styles live in external .css files
     fail: a .vue file still contains an inline <style> block
@@ -111,9 +111,9 @@ rules:
     pass: all functions have comments
     fail: a function lacks a comment
 
-commit_rules:
+commit_rules:                    # rules about the commit message itself (commit only)
   - id: subject-zh
-    on: subject
+    on: subject                  # subject | body | prefix | all — which part of the message
     text: the subject must be in Chinese (technical terms may stay English)
     pass: the subject is primarily Chinese
     fail: the subject is not Chinese
