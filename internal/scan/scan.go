@@ -71,7 +71,7 @@ func (s *Scanner) Run(ctx context.Context, root, subdir string, forceFiles []str
 }
 
 // classify 读取并分类一个文件，填充 Skipped/Kind/content；跳过时 content 为空。
-// 分类顺序：secret 跳过（ForceList 时除外）→ 读取/二进制过滤 → token 超限预估 → override → 后缀分类。
+// 分类顺序：secret 跳过（ForceList 时除外）→ 读取/二进制过滤 → override 覆盖 → 后缀分类。
 func (s *Scanner) classify(root, rel string, r *FileResult) {
 	r.Path = rel
 	if !s.opts.Force && IsSecret(rel) {
@@ -87,10 +87,6 @@ func (s *Scanner) classify(root, rel string, r *FileResult) {
 		r.Skipped, r.SkipWhy = true, "二进制或过大"
 		return
 	}
-	if estTokens(content) > maxStateTokens {
-		r.Skipped, r.SkipWhy = true, "超上下文上限"
-		return
-	}
 	if kind, hit := s.override(root, rel); hit {
 		r.Kind = kind
 	} else {
@@ -99,32 +95,24 @@ func (s *Scanner) classify(root, rel string, r *FileResult) {
 	r.content = content
 }
 
-// maxStateTokens 是 state+问题的安全上限（jev-1.13 上限 32k tok，留余量给 instructions）。
-const maxStateTokens = 30000
-
-// estTokens 粗估文本 token 数：英文代码约 4 字符/token。中文按字节会低估，
-// 但作为"防超限兜底"宁可多放几个边缘文件让 API 判，也不提前误伤可扫的。
-func estTokens(s string) int {
-	return len(s)/4 + 1
-}
-
 // override 查绝对路径是否被 --config override 指定了扫描方式。
 func (s *Scanner) override(root, rel string) (FileKind, bool) {
 	if s.opts.Overrides == nil {
 		return 0, false
 	}
 	abs := filepath.Join(root, filepath.FromSlash(rel))
-	kind, ok := s.opts.Overrides[abs]
+	v, ok := s.opts.Overrides[abs]
 	if !ok {
 		return 0, false
 	}
-	switch kind {
+	switch v {
 	case "config":
 		return KindConfig, true
 	case "doc":
 		return KindDoc, true
+	default: // "code" 及未知值按代码处理
+		return KindCode, true
 	}
-	return KindCode, true
 }
 
 // dryRun 对每个文件做同样的过滤和分类，但不发请求；Probs 填 0 占位让列渲染出来。
