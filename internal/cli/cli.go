@@ -31,6 +31,7 @@ func Run(args []string) error {
 		subdir  = fs.String("subdir", "", "only scan this subdirectory within --dir")
 		files   = fs.String("files", "", "comma-separated file list to force-scan (bypasses git/credential filters)")
 		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh | glyph=nerd|emoji | override=<path>:<code|config|doc>")
+		tmpSet  = fs.String("set", "", "temporary config for this run only (same keys as --config, not saved)")
 		dryRun  = fs.Bool("dry-run", false, "list files that would be scanned without calling the API")
 		model   = fs.String("model", "jev-latest", "TypeSafe model ID or alias")
 		width   = fs.Int("width", 40, "path column display width")
@@ -62,40 +63,41 @@ func Run(args []string) error {
 		}
 	}
 
+	// 加载已保存配置（dry-run 也要 lang/glyph/overrides）
 	var cfg config.Config
-	if *dryRun {
-		cfg = config.Config{APIKey: "dry-run", Lang: "en", Glyph: "nerd"}
-		if c, err := config.Load(); err == nil || errors.Is(err, config.ErrNoAPIKey) {
-			if c.Lang != "" {
-				cfg.Lang = c.Lang
-			}
-			if c.Glyph != "" {
-				cfg.Glyph = c.Glyph
-			}
-			cfg.Overrides = c.Overrides // 覆盖规则在 dry-run 也生效
-		}
-	} else {
-		cfg, err = config.Load()
-		if err != nil {
-			if !errors.Is(err, config.ErrNoAPIKey) {
-				return err
-			}
-			key, perr := promptKey()
-			if perr != nil {
-				return perr
-			}
-			if err := config.Save(config.Config{APIKey: key, Lang: cfg.Lang, Glyph: cfg.Glyph}); err != nil {
-				return err
-			}
-			cfg.APIKey = key
-			fmt.Println("API key saved to", mustConfigPath())
-		}
+	if c, err := config.Load(); err == nil || errors.Is(err, config.ErrNoAPIKey) {
+		cfg = c
+	}
+	if cfg.Lang == "" {
+		cfg.Lang = "en"
 	}
 	if cfg.Glyph == "" {
 		cfg.Glyph = "nerd"
 	}
-	if cfg.Lang == "" {
-		cfg.Lang = "en"
+
+	// --set 临时覆盖（不落盘），可多次或逗号分隔多个 key=value
+	if *tmpSet != "" {
+		for _, kv := range strings.Split(*tmpSet, ",") {
+			var err error
+			cfg, err = config.Apply(cfg, strings.TrimSpace(kv))
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	if *dryRun {
+		cfg.APIKey = "dry-run"
+	} else if cfg.APIKey == "" {
+		key, perr := promptKey()
+		if perr != nil {
+			return perr
+		}
+		if err := config.Save(config.Config{APIKey: key, Lang: cfg.Lang, Glyph: cfg.Glyph}); err != nil {
+			return err
+		}
+		cfg.APIKey = key
+		fmt.Println("API key saved to", mustConfigPath())
 	}
 
 	var forceFiles []string
@@ -180,11 +182,15 @@ Flags:
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
 On first run you will be prompted for your API key, saved to the user config dir.
-Update values any time with:
+Persistent config (saved):
   codesafe --config api_key=<key>
   codesafe --config lang=zh                     (output in Chinese; default en)
   codesafe --config glyph=emoji                 (emoji gauge instead of Nerd Font)
   codesafe --config override=<path>:<kind>      (force a file's scan mode: code|config|doc)
+
+Temporary overrides for one run only (comma-separate multiple, not saved):
+  codesafe --set lang=en,glyph=emoji
+  codesafe --set api_key=<key>                  (use a key without saving it)
 `)
 	}
 }

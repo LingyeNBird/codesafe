@@ -56,6 +56,10 @@ go build -o codesafe ./cmd/codesafe
 ./codesafe --config lang=zh      # Chinese labels (default en)
 ./codesafe --config glyph=emoji  # emoji gauge if your terminal lacks Nerd Font
 ./codesafe --config override=path/to/file:config  # force a file's scan mode (code|config|doc)
+
+# Temporary overrides for one run only (comma-separate, not saved)
+./codesafe --set api_key=<key>
+./codesafe --set lang=en,glyph=emoji
 ```
 
 Output columns: `bug` · `security` · `data` · `deps` · `logic` (Chinese:

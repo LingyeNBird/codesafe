@@ -49,6 +49,10 @@ go build -o codesafe ./cmd/codesafe
 ./codesafe --config glyph=emoji   # 终端无 Nerd Font 时改用 emoji 圆环
 ./codesafe --config override=路径:config  # 强制某文件的扫描方式（code|config|doc）
 
+# 临时覆盖，仅本次生效、不落盘（多个用逗号分隔）
+./codesafe --set api_key=<key>
+./codesafe --set lang=en,glyph=emoji
+
 # 调整并发/请求速率（默认 16 并发，20 req/s）
 ./codesafe --concurrency 32 --rps 30
 ```

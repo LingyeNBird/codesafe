@@ -83,13 +83,25 @@ func Save(cfg Config) error {
 	return nil
 }
 
-// Set 解析 "key=value" 并写入配置；支持 api_key、lang。返回更新后的配置。
+// Set 解析 "key=value" 并写入配置；支持 api_key、lang、glyph、override。返回更新后的配置。
 func Set(kv string) (Config, error) {
+	cfg, _ := Load() // 读旧值以便局部更新；文件不存在也无妨
+	cfg, err := Apply(cfg, kv)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := Save(cfg); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+// Apply 同 Set 的解析逻辑，但只改内存值不落盘。供 --set 临时覆盖用。
+func Apply(cfg Config, kv string) (Config, error) {
 	key, value, ok := strings.Cut(kv, "=")
 	if !ok {
-		return Config{}, fmt.Errorf("expected --config key=value, got %q", kv)
+		return Config{}, fmt.Errorf("expected key=value, got %q", kv)
 	}
-	cfg, _ := Load() // 读旧值以便局部更新；文件不存在也无妨
 	switch key {
 	case "api_key":
 		if value == "" {
@@ -123,9 +135,6 @@ func Set(kv string) (Config, error) {
 	}
 	if cfg.Glyph == "" {
 		cfg.Glyph = "nerd"
-	}
-	if err := Save(cfg); err != nil {
-		return Config{}, err
 	}
 	return cfg, nil
 }
