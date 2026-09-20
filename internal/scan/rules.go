@@ -243,73 +243,54 @@ func isTokenLimit(err error) bool {
 		strings.Contains(err.Error(), "context"))
 }
 
-// CheckCommitRules 检查 commit message 各部分规则。on=subject|body|prefix|all。
-// prefix 规则查的是用户 -m 自带的前缀（若用户没带则不查该规则）。
-func CheckCommitRules(ctx context.Context, client *typesafe.Client, subject, body, userPrefix string, rules []config.Rule) ([]RuleResult, error) {
-	var out []RuleResult
+// CheckCommitRules 检查 commit message 规则。接收原始 -m 全文（不预拆），每条规则 instructions
+// 里声明作用部分（subject/body/prefix/all），模型自行定位。同批附带"是否含前缀"判定。
+// 返回 (逐规则结果, 是否检测到前缀, error)。
+func CheckCommitRules(ctx context.Context, client *typesafe.Client, rawMessage string, rules []config.Rule) ([]RuleResult, bool, error) {
 	qs := map[string]typesafe.Question{}
 	var applicable []config.Rule
 	for _, r := range rules {
-		var target string
-		switch r.On {
-		case "subject", "":
-			target = subject
-		case "body":
-			target = body
-		case "prefix":
-			target = userPrefix
-			if target == "" {
-				out = append(out, RuleResult{Rule: r, Pass: true, Skip: true})
-				continue
-			}
-		case "all":
-			target = subject + "\n" + body
-		}
 		if r.ID == "" {
 			r.ID = r.Text
 		}
-		if strings.TrimSpace(target) == "" {
-			out = append(out, RuleResult{Rule: r, Pass: true, Skip: true})
-			continue
-		}
+		part := commitPart(r.On)
 		qs[r.ID] = typesafe.Noul(
-			fmt.Sprintf("Given this commit-message %s text, check the rule. %s", orEmpty(r.On, "subject"), r.Text),
-			map[string]string{"true": orStr(r.Pass, "the text satisfies the rule"), "false": orStr(r.Fail, "the text violates the rule")})
+			fmt.Sprintf("This is a git commit message. Check this rule about its %s. %s", part, r.Text),
+			map[string]string{"true": orStr(r.Pass, "the "+part+" satisfies the rule"), "false": orStr(r.Fail, "the "+part+" violates the rule")})
 		applicable = append(applicable, r)
 	}
-	if len(applicable) == 0 {
-		return out, nil
-	}
-	answers, _, err := client.Evaluate(ctx, commitMsgState(subject, body, userPrefix), qs)
+	// 同批加"有无前缀"判定（正则提取失败时的兜底）。
+	qs["__has_prefix"] = typesafe.Noul(
+		"Does the first line of this commit message begin with a conventional-commit type/scope prefix — a leading token like 'feat', 'fix(scope)', 'chore:', possibly with non-ASCII punctuation (full-width colon ：or brackets （）) or missing the space after the colon? Answer YES if it clearly starts with a type or type(scope) marker regardless of punctuation correctness.",
+		map[string]string{
+			"true":  "The subject starts with a conventional-commit type/scope prefix, even if malformed.",
+			"false": "The subject has no type/scope prefix — plain description text.",
+		})
+	answers, _, err := client.Evaluate(ctx, rawMessage, qs)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
+	hasPrefix := answers["__has_prefix"].Noul >= 0.5
+	var out []RuleResult
 	for _, r := range applicable {
 		a := answers[r.ID]
 		out = append(out, RuleResult{Rule: r, Pass: a.Noul >= 0.5, Prob: a.Noul})
 	}
-	return out, nil
+	return out, hasPrefix, nil
 }
 
-// commitMsgState 把 commit message 各部分组装成 state。
-func commitMsgState(subject, body, prefix string) string {
-	var b strings.Builder
-	if prefix != "" {
-		b.WriteString("prefix: " + prefix + "\n")
+// commitPart 把 on 值映射成自然语言描述，放进 instructions 让模型定位部分。
+func commitPart(on string) string {
+	switch on {
+	case "body":
+		return "body (everything after the first line)"
+	case "prefix":
+		return "type(scope) prefix at the start of the first line, if present"
+	case "all":
+		return "entire message"
+	default: // subject / 空
+		return "subject (the first line, after any type/scope prefix)"
 	}
-	b.WriteString("subject: " + subject + "\n")
-	if body != "" {
-		b.WriteString("body:\n" + body)
-	}
-	return b.String()
-}
-
-// orEmpty 返回 s 或空时的默认值。
-func orEmpty(s, def string) string {
-	if s == "" {
-		return def
-	}
-	return s
 }
 
 // orStr 返回 s 或空时的默认值。

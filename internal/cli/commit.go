@@ -62,33 +62,26 @@ func runCommit(args []string) error {
 	client := typesafe.NewClient(cfg.APIKey, *model)
 	ctx := context.Background()
 
-	// 第一个 -m 可能自带 type(scope): 前缀 → 正则先提取（兼容全角冒号/括号）
+	// 原始 commit message（第一个 -m 是 subject 行，其余是 body 段）
+	raw := strings.Join([]string(msgs), "\n\n")
+
+	// 1) commit_rules + 有无前缀判定：一个请求，state=完整 message
 	subject := msgs[0]
 	userPrefix := ""
+	res, modelHasPrefix, err := scan.CheckCommitRules(ctx, client, raw, pc.CommitRules)
+	if err != nil {
+		return err
+	}
+	if fail := firstFail(res); fail != nil {
+		return fmt.Errorf("commit message 违反规则 %s: %s", fail.Rule.ID, fail.Rule.Fail)
+	}
+
+	// 提取前缀：正则先匹配（兼容全角），匹配不到但模型判有前缀 → 中断要求规范格式
 	if m := prefixRe.FindStringSubmatch(subject); m != nil {
 		userPrefix = normalizePrefix(m[1])
 		subject = strings.TrimSpace(subject[len(m[0]):])
-	} else {
-		// 正则没匹配到——可能前缀格式不规范（全角/缺空格等）。问模型它是不是含前缀。
-		has, err := hasPrefix(ctx, client, subject)
-		if err != nil {
-			return err
-		}
-		if has {
-			return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格）", msgs[0])
-		}
-	}
-	body := strings.Join(msgs[1:], "\n\n")
-
-	// 1) commit_rules：查 subject/body/用户前缀
-	if len(pc.CommitRules) > 0 {
-		res, err := scan.CheckCommitRules(ctx, client, subject, body, userPrefix, pc.CommitRules)
-		if err != nil {
-			return err
-		}
-		if fail := firstFail(res); fail != nil {
-			return fmt.Errorf("commit message 违反规则 %s: %s", fail.Rule.ID, fail.Rule.Fail)
-		}
+	} else if modelHasPrefix {
+		return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格）", msgs[0])
 	}
 
 	// 2) rules：查 staged diff（要提交的内容）的代码规则
@@ -145,22 +138,6 @@ func normalizePrefix(p string) string {
 	p = strings.ReplaceAll(p, "）", ")")
 	p = strings.ReplaceAll(p, " ", "")
 	return p
-}
-
-// hasPrefix 用模型判 subject 开头是否含 conventional type/scope 前缀（哪怕格式不规范）。
-// 用于正则提取失败时：判有前缀但格式不对 → 中断让用户改。
-func hasPrefix(ctx context.Context, client *typesafe.Client, subject string) (bool, error) {
-	q := typesafe.Noul(
-		"Does this commit subject begin with a conventional-commit type/scope prefix — a leading token like 'feat', 'fix(scope)', 'chore:', possibly with non-ASCII punctuation (full-width colon ：or brackets （）) or missing the space after the colon? Answer YES if the subject clearly starts with a type or type(scope) marker regardless of punctuation correctness.",
-		map[string]string{
-			"true":  "The subject starts with a conventional-commit type/scope prefix, even if the punctuation is malformed.",
-			"false": "The subject has no type/scope prefix — it is plain description text.",
-		})
-	ans, _, err := client.Evaluate(ctx, subject, map[string]typesafe.Question{"p": q})
-	if err != nil {
-		return false, err
-	}
-	return ans["p"].Noul >= 0.5, nil
 }
 
 // firstFail 返回第一个 error 级违反的规则；无则 nil。
