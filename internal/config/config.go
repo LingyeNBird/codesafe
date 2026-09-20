@@ -27,6 +27,8 @@ type Config struct {
 	AllowNone *bool    `json:"allow_none,omitempty"` // 是否允许 scope=none；nil/false→不允许
 	// Screened 缓存按项目根路径筛出的形态域 scope 名；目录结构变化时重筛。
 	Screened map[string]ScreenedEntry `json:"screened,omitempty"`
+	// Todo 按项目根路径存当前任务描述（codesafe todo 设置，commit 成功后清空）。
+	Todo map[string]string `json:"todo,omitempty"`
 }
 
 // ScreenedEntry 是一个项目的筛选缓存：scope 名列表 + 生成时的目录指纹。
@@ -164,25 +166,55 @@ func AllowNoneOf(cfg Config) bool {
 	return cfg.AllowNone == nil || *cfg.AllowNone
 }
 
-// ProjectConfig 是项目根 codesafe.yaml 的内容：scope 集、none 开关、自定义代码/提交规则、前缀冲突策略。
+// TodoOf 返回项目 root 当前的 TODO 任务描述；无则空串。
+func TodoOf(cfg Config, root string) string {
+	if cfg.Todo == nil {
+		return ""
+	}
+	return cfg.Todo[root]
+}
+
+// SetTodo 写入/清空项目 root 的 TODO 并持久化。text 空=清空。
+func SetTodo(cfg *Config, root, text string) error {
+	if cfg.Todo == nil {
+		cfg.Todo = map[string]string{}
+	}
+	if text == "" {
+		delete(cfg.Todo, root)
+	} else {
+		cfg.Todo[root] = text
+	}
+	return Save(*cfg)
+}
+
+// TodoModeOf 解析 todo_mode 字符串为规范值：off|loose|strict；空/非法→默认 loose。
+func TodoModeOf(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "off", "strict":
+		return strings.ToLower(strings.TrimSpace(s))
+	}
+	return "loose"
+}
+
 type ProjectConfig struct {
 	Scopes         map[string]string `yaml:"scopes"`
 	AllowNone      *bool             `yaml:"allow_none"`
 	Rules          []Rule            `yaml:"rules"`           // 代码规则：diff 检查
 	CommitRules    []Rule            `yaml:"commit_rules"`    // 提交规则：commit message 检查
 	PrefixConflict string            `yaml:"prefix_conflict"` // keep_user | override（默认）
+	TodoMode       string            `yaml:"todo_mode"`       // off | loose | strict（默认 loose）
 }
 
-// Rule 是一条自定义规则。text 是给模型的判定说明，pass/fail 是 true/false 分支的描述。
-// files 是 glob（diff 含匹配文件才问）；level 是 error(默认,中断)|warn(只提示)；on 是 commit 规则作用域。
+// Rule.TodoMode 规则级覆盖全局 todo_mode（仅含 {{TODO}} 插值的规则有意义）。
 type Rule struct {
-	ID    string `yaml:"id"`
-	Level string `yaml:"level"` // error | warn
-	Files string `yaml:"files"` // glob，如 "*.vue"；空=对所有 diff 生效
-	Text  string `yaml:"text"`  // 判定说明（instructions）
-	Pass  string `yaml:"pass"`  // 满足时的描述
-	Fail  string `yaml:"fail"`  // 违反时的描述
-	On    string `yaml:"on"`    // commit_rules 用：subject|body|prefix|all
+	ID       string `yaml:"id"`
+	Level    string `yaml:"level"`     // error | warn
+	Files    string `yaml:"files"`     // glob，如 "*.vue"；空=对所有 diff 生效
+	Text     string `yaml:"text"`      // 判定说明（instructions），可含 {{TODO}} 插值
+	Pass     string `yaml:"pass"`      // 满足时的描述
+	Fail     string `yaml:"fail"`      // 违反时的描述
+	On       string `yaml:"on"`        // commit_rules 用：subject|body|prefix|all
+	TodoMode string `yaml:"todo_mode"` // off|loose|strict，覆盖全局（对含 {{TODO}} 的规则）
 }
 
 // LoadProject 读取 dir 下的 codesafe.yaml / codesafe.yml；不存在返回空配置。

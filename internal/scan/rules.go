@@ -17,10 +17,11 @@ import (
 
 // RuleResult 是一条规则的判定结果。
 type RuleResult struct {
-	Rule config.Rule
-	Pass bool    // noul ≥0.5 视为满足
-	Prob float64 // 满足的概率
-	Skip bool    // files glob 无匹配，跳过未问
+	Rule        config.Rule
+	Pass        bool    // noul ≥0.5 视为满足
+	Prob        float64 // 满足的概率
+	Skip        bool    // files glob 无匹配，或 {{TODO}} 规则但 todo 空（非 strict）
+	TodoMissing bool    // {{TODO}} 规则但 todo 空且 todo_mode=strict → 视为违反
 }
 
 // DiffFiles 从 unified diff 文本提取改动的文件路径（去重、去 a//b/ 前缀）。
@@ -107,10 +108,11 @@ func wildcard(pat, s string) bool {
 	return px == len(pat)
 }
 
-// CheckRules 对 diff 批量检查 rules。每条 rule 生成一个 noul；同一 diff 一次请求。
-// 若整批超 max_tokens，把 description 最长的规则拆出单独问（state=该规则说明+匹配文件 diff 段），其余重试。
-// 返回每条规则的判定（含 skip）。
-func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules []config.Rule) ([]RuleResult, error) {
+// CheckRules 对 diff 批量检查 rules + 内建 TODO 判定。每条 rule 生成一个 noul；同一 diff 一次请求。
+// todo 非空时：{{TODO}} 插值进含占位符的规则 text/pass/fail；并追加一条内建 "diff implements TODO" 判定。
+// todo 空时：含 {{TODO}} 的规则按各自 TodoMode 处理（strict→判失败中断，loose/off→跳过）。
+// 若整批超 max_tokens，把 description 最长的规则拆出单独问，其余重试。
+func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules []config.Rule, todo, globalMode string) ([]RuleResult, error) {
 	files := DiffFiles(diff)
 	var active []config.Rule
 	results := map[string]RuleResult{}
@@ -118,11 +120,33 @@ func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules
 		if r.ID == "" {
 			r.ID = r.Text
 		}
+		if strings.Contains(r.Text+r.Pass+r.Fail, "{{TODO}}") {
+			mode := config.TodoModeOf(orStr(r.TodoMode, globalMode))
+			if todo == "" {
+				if mode == "strict" {
+					results[r.ID] = RuleResult{Rule: r, Pass: false, Prob: 0, TodoMissing: true}
+				} else {
+					results[r.ID] = RuleResult{Rule: r, Pass: true, Skip: true}
+				}
+				continue
+			}
+			r = interpTodo(r, todo)
+		}
 		if matchRule(r, files) {
 			active = append(active, r)
 		} else {
 			results[r.ID] = RuleResult{Rule: r, Pass: true, Skip: true}
 		}
+	}
+	// 内建 TODO 判定：diff 是否实现了任务（与规则共享全量 diff 上下文）
+	if todo != "" {
+		active = append(active, config.Rule{
+			ID:    "__todo__",
+			Level: "error",
+			Text:  "Does this diff implement the task? Task: \"" + todo + "\"",
+			Pass:  "the diff implements the stated task",
+			Fail:  "the diff does not implement the stated task",
+		})
 	}
 	if len(active) == 0 {
 		return nil, nil
@@ -134,7 +158,7 @@ func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules
 	for _, r := range got {
 		results[r.Rule.ID] = r
 	}
-	out := make([]RuleResult, 0, len(rules))
+	out := make([]RuleResult, 0, len(rules)+1)
 	for _, r := range rules {
 		id := r.ID
 		if id == "" {
@@ -142,7 +166,21 @@ func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules
 		}
 		out = append(out, results[id])
 	}
+	if todo != "" {
+		if tr, ok := results["__todo__"]; ok {
+			out = append(out, tr)
+		}
+	}
 	return out, nil
+}
+
+// interpTodo 把规则 text/pass/fail 里的 {{TODO}} 替换为任务文本（引号包裹界定角色，防注入）。
+func interpTodo(r config.Rule, todo string) config.Rule {
+	sub := "the task: \"" + todo + "\""
+	r.Text = strings.ReplaceAll(r.Text, "{{TODO}}", sub)
+	r.Pass = strings.ReplaceAll(r.Pass, "{{TODO}}", sub)
+	r.Fail = strings.ReplaceAll(r.Fail, "{{TODO}}", sub)
+	return r
 }
 
 // askRules 批量问 rules；超限时拆最长的单独问。递归直到全部判出。

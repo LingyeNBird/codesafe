@@ -51,7 +51,8 @@ func runDiff(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(pc.Rules) == 0 {
+	todo := config.TodoOf(cfg, root)
+	if len(pc.Rules) == 0 && todo == "" {
 		fmt.Println(dim() + "no rules in codesafe.yaml" + reset())
 		return nil
 	}
@@ -63,7 +64,7 @@ func runDiff(args []string) error {
 		return fmt.Errorf("no diff to check")
 	}
 	client := typesafe.NewClient(cfg.APIKey, *model)
-	results, err := scan.CheckRules(context.Background(), client, diff, pc.Rules)
+	results, err := scan.CheckRules(context.Background(), client, diff, pc.Rules, todo, pc.TodoMode)
 	if err != nil {
 		return err
 	}
@@ -122,10 +123,16 @@ func printRuleResults(results []scan.RuleResult, lang string, detail bool) {
 	}
 	for _, r := range fails {
 		lbl := "FAIL"
+		desc := r.Rule.Fail
 		if zh {
 			lbl = "违反"
 		}
-		fmt.Printf("  %s%s%s %s  %s%s%s\n", red(), lbl, reset(), r.Rule.ID, dim(), r.Rule.Fail, reset())
+		if r.TodoMissing {
+			desc = "要求设置 TODO（todo_mode=strict），先 `codesafe todo <任务>`"
+		} else if r.Rule.ID == "__todo__" {
+			desc = "diff 未实现 TODO：" + r.Rule.Fail
+		}
+		fmt.Printf("  %s%s%s %s  %s%s%s\n", red(), lbl, reset(), r.Rule.ID, dim(), desc, reset())
 	}
 }
 

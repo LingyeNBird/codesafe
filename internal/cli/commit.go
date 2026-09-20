@@ -87,15 +87,26 @@ func runCommit(args []string) error {
 		}
 	}
 
-	// 2) rules：查 staged diff（要提交的内容）的代码规则
+	// 2) rules + 内建 TODO 判定：查 staged diff（要提交的内容）
+	todo := config.TodoOf(cfg, root)
+	todoMode := config.TodoModeOf(pc.TodoMode)
 	diff, err := scan.StagedDiff(root)
-	if strings.TrimSpace(diff) != "" && len(pc.Rules) > 0 {
-		res, err := scan.CheckRules(ctx, client, diff, pc.Rules)
+	if strings.TrimSpace(diff) != "" && (len(pc.Rules) > 0 || todo != "") {
+		res, err := scan.CheckRules(ctx, client, diff, pc.Rules, todo, pc.TodoMode)
 		if err != nil {
 			return err
 		}
 		for _, r := range res {
-			if r.Skip || r.Pass {
+			if r.Skip {
+				continue
+			}
+			if r.TodoMissing {
+				return fmt.Errorf("规则 %s 要求设置 TODO（todo_mode=strict），请先 `codesafe todo <任务>`", r.Rule.ID)
+			}
+			if r.Rule.ID == "__todo__" && !r.Pass {
+				return fmt.Errorf("diff 未实现 TODO：%q\n请更新 TODO（codesafe todo <新任务>）或修正提交内容", todo)
+			}
+			if r.Pass {
 				continue
 			}
 			if r.Rule.Level == "warn" {
@@ -104,6 +115,10 @@ func runCommit(args []string) error {
 			}
 			return fmt.Errorf("diff 违反规则 %s: %s", r.Rule.ID, r.Rule.Fail)
 		}
+	}
+	// strict 模式且 TODO 为空 → 必须先设置任务（diff 为空也拦）
+	if todoMode == "strict" && todo == "" {
+		return fmt.Errorf("todo_mode=strict：必须先 `codesafe todo <任务>` 设置任务再提交")
 	}
 
 	// 3) 生成 type(scope) 前缀（若用户已带前缀且 keep_user，则直接用用户的）
@@ -131,7 +146,14 @@ func runCommit(args []string) error {
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
 	fmt.Fprintf(os.Stderr, "%scommit:%s %s\n", dim(), reset(), full)
-	return cmd.Run()
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	// 提交成功 → 清空 TODO
+	if todo != "" {
+		config.SetTodo(&cfg, root, "")
+	}
+	return nil
 }
 
 // normalizePrefix 规范化提取到的前缀文本：全角括号→半角、去空格、保留 type(scope)! 结构。

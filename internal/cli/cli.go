@@ -36,6 +36,8 @@ func Run(args []string) error {
 			return runAgent(args[1:])
 		case "delete":
 			return runDelete(args[1:])
+		case "todo":
+			return runTodo(args[1:])
 		}
 	}
 	return runClassify(args)
