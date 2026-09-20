@@ -178,7 +178,8 @@ func askRules(ctx context.Context, client *typesafe.Client, diff string, rules [
 	return out, nil
 }
 
-// ruleNoul 把一条规则转成 noul 问题。
+// ruleNoul 把一条规则转成 noul。带 files 限定时在 instructions 里声明"只评估匹配 glob 的文件"——
+// 因为复用的是全量 diff 上下文，模型需知道该规则只管哪部分文件。
 func ruleNoul(r config.Rule) typesafe.Question {
 	pass := r.Pass
 	if pass == "" {
@@ -188,7 +189,11 @@ func ruleNoul(r config.Rule) typesafe.Question {
 	if fail == "" {
 		fail = "the diff violates this rule"
 	}
-	return typesafe.Noul(r.Text, map[string]string{"true": pass, "false": fail})
+	text := r.Text
+	if r.Files != "" {
+		text = fmt.Sprintf("%s\n\nScope: this rule applies ONLY to files matching %q. Ignore all other files in the diff when judging.", text, r.Files)
+	}
+	return typesafe.Noul(text, map[string]string{"true": pass, "false": fail})
 }
 
 // longestRule 返回 text 最长的规则下标。
