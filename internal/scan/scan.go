@@ -83,12 +83,22 @@ func classify(root, rel string, r *FileResult) {
 	r.content = content
 }
 
-// dryRun 对每个文件做同样的过滤和分类，但不发请求。
+// dryRun 对每个文件做同样的过滤和分类，但不发请求；Probs 填 0 占位让列渲染出来。
 func (s *Scanner) dryRun(root string, files []string) []FileResult {
 	results := make([]FileResult, 0, len(files))
 	for _, rel := range files {
 		var r FileResult
 		classify(root, rel, &r)
+		if !r.Skipped {
+			r.Probs = map[string]float64{}
+			if r.Kind == KindCode {
+				for _, d := range Dims {
+					r.Probs[d.ID] = 0
+				}
+			} else {
+				r.Probs[FormatDim.ID] = 0
+			}
+		}
 		results = append(results, r)
 	}
 	sortResults(results)

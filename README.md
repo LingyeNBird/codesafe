@@ -38,17 +38,15 @@ go build -o codesafe ./cmd/codesafe
 # List what would be scanned without calling the API
 ./codesafe --dry-run
 
-# Update the stored API key
-./codesafe --config <new-key>
-
-# Tune concurrency / request rate (defaults: 16 parallel, 20 req/s)
-./codesafe --concurrency 32 --rps 30
+# Update stored settings
+./codesafe --config api_key=<new-key>
+./codesafe --config lang=zh      # Chinese labels (default en)
+./codesafe --config glyph=emoji  # emoji gauge if your terminal lacks Nerd Font
 ```
 
-Output columns: `缺陷` (bugs) · `安全` (security) · `数据` (data access) ·
-`依赖` (dependency usage) · `逻辑` (internal logic). Config/doc files show a
-single `格式` (format) column. Rows sort by the equal-weight sum of
-probabilities, highest first.
+Output columns: `bug` · `security` · `data` · `deps` · `logic` (Chinese:
+缺陷/安全/数据/依赖/逻辑). Config/doc files show a single `format` column.
+Rows sort by the equal-weight sum of probabilities, highest first.
 
 ## License
 

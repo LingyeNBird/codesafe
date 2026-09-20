@@ -31,8 +31,10 @@ go build -o codesafe ./cmd/codesafe
 # 只列出将被扫描的文件，不调用 API
 ./codesafe --dry-run
 
-# 更新已保存的 API key
-./codesafe --config <new-key>
+# 更新设置
+./codesafe --config api_key=<new-key>
+./codesafe --config lang=zh       # 中文标签（默认 en）
+./codesafe --config glyph=emoji   # 终端无 Nerd Font 时改用 emoji 圆环
 
 # 调整并发/请求速率（默认 16 并发，20 req/s）
 ./codesafe --concurrency 32 --rps 30

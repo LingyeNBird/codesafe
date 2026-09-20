@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * See COPYING in the project root for the full license.
  */
-// render 包把扫描结果渲染成等宽终端行：截断路径 + 每维度"标签:百分比 + Nerd Font 圆环"，按维度着色。
+// render 包把扫描结果渲染成等宽终端行：截断路径 + 每维度"标签:百分比 + 圆环符号"，按维度着色，支持 i18n 标签与 Nerd Font / emoji 两套符号。
 package render
 
 import (
@@ -29,44 +29,82 @@ var dimColor = map[string]string{
 	"format":     "\x1b[38;5;70m",  // 绿
 }
 
-// Nerd Font md-circle-slice：U+F10D3 空圆，U+F0A9E..U+F0AA5 填充从 1/8 到满。
-var sliceGlyphs = []rune{
-	'\U000F10D3', // 0%   空圆
-	'\U000F0A9E', // ~12% slice_1
-	'\U000F0A9F', // ~25% slice_2
-	'\U000F0AA0', // ~37% slice_3
-	'\U000F0AA1', // 50%  slice_4
-	'\U000F0AA2', // ~62% slice_5
-	'\U000F0AA3', // ~75% slice_6
-	'\U000F0AA4', // ~87% slice_7
-	'\U000F0AA5', // 100% slice_8 满
+// i18n：lang -> key -> 文案。新增语言只需加一张表。
+var i18n = map[string]map[string]string{
+	"en": {
+		"bug": "bug", "security": "security", "data_ops": "data",
+		"dependency": "deps", "logic": "logic", "format": "format",
+		"skip": "skipped", "error": "error",
+		"dryrun_header": "Would scan %d files (skips marked):",
+	},
+	"zh": {
+		"bug": "缺陷", "security": "安全", "data_ops": "数据",
+		"dependency": "依赖", "logic": "逻辑", "format": "格式",
+		"skip": "跳过", "error": "错误",
+		"dryrun_header": "将扫描 %d 个文件（跳过项标注）:",
+	},
 }
 
-// glyph 把概率 0..1 映射到八档圆环。
-func glyph(p float64) rune {
+// T 取 lang 下 key 的文案；缺省回退 en 再回退 key 本身。供包外（如 cli）复用。
+func T(lang, key string) string {
+	if m, ok := i18n[lang]; ok {
+		if s, ok := m[key]; ok {
+			return s
+		}
+	}
+	if s, ok := i18n["en"][key]; ok {
+		return s
+	}
+	return key
+}
+
+// 两套符号集：nerd 用 Nerd Font 圆环，emoji 用 Unicode 圆/方块表达档位。
+var (
+	// nerdGlyphs: U+F10D3 空圆 + U+F0A9E..U+F0AA5 填充 1/8..满
+	nerdGlyphs = []rune{
+		'\U000F10D3',
+		'\U000F0A9E', '\U000F0A9F', '\U000F0AA0', '\U000F0AA1',
+		'\U000F0AA2', '\U000F0AA3', '\U000F0AA4', '\U000F0AA5',
+	}
+	// emojiGlyphs: 用色相热度表达档位——绿=低，黄=中，橙=偏高，红=高。
+	emojiGlyphs = []rune{
+		'⚪',      // 0%   空
+		'🟢', '🟢', // ~12% ~25% 低
+		'🟡', '🟡', // ~37% 50%  中
+		'🟠', '🟠', // ~62% ~75% 偏高
+		'🔴', '🔴', // ~87% 100% 高
+	}
+)
+
+// glyph 把概率 0..1 映射到所选符号集的档位。
+func glyph(p float64, mode string) rune {
+	set := nerdGlyphs
+	if mode == "emoji" {
+		set = emojiGlyphs
+	}
 	if p <= 0 {
-		return sliceGlyphs[0]
+		return set[0]
 	}
 	if p >= 1 {
-		return sliceGlyphs[8]
+		return set[8]
 	}
-	idx := int(p*8 + 0.5) // 四舍五入到最近档
+	idx := int(p*8 + 0.5)
 	if idx < 1 {
 		idx = 1
 	}
 	if idx > 8 {
 		idx = 8
 	}
-	return sliceGlyphs[idx]
+	return set[idx]
 }
 
 // Row 渲染单行结果：路径左对齐占 width 列，其后每维一段；配置/文档文件只显示格式列。
-func Row(r scan.FileResult, width int) string {
+func Row(r scan.FileResult, width int, lang, glyphMode string) string {
 	if r.Skipped {
-		return fmt.Sprintf("%s%s 跳过: %s%s", dim, padPath(r.Path, width), r.SkipWhy, reset)
+		return fmt.Sprintf("%s%s %s: %s%s", dim, padPath(r.Path, width), T(lang, "skip"), r.SkipWhy, reset)
 	}
 	if r.Err != nil {
-		return fmt.Sprintf("%s%s 错误: %s%s", dim, padPath(r.Path, width), r.Err, reset)
+		return fmt.Sprintf("%s%s %s: %s%s", dim, padPath(r.Path, width), T(lang, "error"), r.Err, reset)
 	}
 	var b strings.Builder
 	b.WriteString(padPath(r.Path, width))
@@ -76,7 +114,7 @@ func Row(r scan.FileResult, width int) string {
 			return b.String()
 		}
 		pct := int(p*100 + 0.5)
-		fmt.Fprintf(&b, "  %s%s:%3d%% %c%s", dimColor[scan.FormatDim.ID], scan.FormatDim.Label, pct, glyph(p), reset)
+		fmt.Fprintf(&b, "  %s%s:%3d%% %c%s", dimColor[scan.FormatDim.ID], T(lang, scan.FormatDim.ID), pct, glyph(p, glyphMode), reset)
 		return b.String()
 	}
 	for _, d := range scan.Dims {
@@ -85,8 +123,7 @@ func Row(r scan.FileResult, width int) string {
 			continue
 		}
 		pct := int(p*100 + 0.5)
-		color := dimColor[d.ID]
-		fmt.Fprintf(&b, "  %s%s:%3d%% %c%s", color, d.Label, pct, glyph(p), reset)
+		fmt.Fprintf(&b, "  %s%s:%3d%% %c%s", dimColor[d.ID], T(lang, d.ID), pct, glyph(p, glyphMode), reset)
 	}
 	return b.String()
 }
@@ -100,11 +137,11 @@ func padPath(path string, width int) string {
 	return path + strings.Repeat(" ", width-len(runes))
 }
 
-// Table 渲染整个结果集；width 为路径列宽。
-func Table(results []scan.FileResult, width int) string {
+// Table 渲染整个结果集；width 为路径列宽，lang/glyphMode 见 config。
+func Table(results []scan.FileResult, width int, lang, glyphMode string) string {
 	var b strings.Builder
 	for _, r := range results {
-		b.WriteString(Row(r, width))
+		b.WriteString(Row(r, width, lang, glyphMode))
 		b.WriteByte('\n')
 	}
 	return b.String()

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * See COPYING in the project root for the full license.
  */
-// cli 包解析命令行参数、处理首次运行的 API key 输入、--config 设置以及 --dry-run 模拟。
+// cli 包解析命令行参数、处理首次运行的 API key 输入、--config key=value 设置以及 --dry-run 模拟。
 package cli
 
 import (
@@ -26,24 +26,25 @@ import (
 func Run(args []string) error {
 	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
 	var (
-		dir    = fs.String("dir", ".", "要扫描的目录（默认当前目录）")
-		setKey = fs.String("config", "", "设置 API key 并退出")
-		dryRun = fs.Bool("dry-run", false, "只列出将被扫描的文件，不调用 API")
-		model  = fs.String("model", "jev-latest", "TypeSafe 模型 ID 或别名")
-		width  = fs.Int("width", 40, "路径列显示宽度")
-		concur = fs.Int("concurrency", 16, "并发请求数")
-		rps    = fs.Float64("rps", 20, "每秒请求上限")
+		dir     = fs.String("dir", ".", "directory to scan (default: current)")
+		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh")
+		dryRun  = fs.Bool("dry-run", false, "list files that would be scanned without calling the API")
+		model   = fs.String("model", "jev-latest", "TypeSafe model ID or alias")
+		width   = fs.Int("width", 40, "path column display width")
+		concur  = fs.Int("concurrency", 16, "concurrent request count")
+		rps     = fs.Float64("rps", 20, "max requests per second")
 	)
 	fs.Usage = usage
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	if *setKey != "" {
-		if err := config.SaveAPIKey(*setKey); err != nil {
+	if *setConf != "" {
+		cfg, err := config.Set(*setConf)
+		if err != nil {
 			return err
 		}
-		fmt.Println("API key 已保存到", mustConfigPath())
+		fmt.Println("config saved to", mustConfigPath(), "(lang="+cfg.Lang+")")
 		return nil
 	}
 
@@ -54,15 +55,23 @@ func Run(args []string) error {
 	if root == "" {
 		root, err = filepath.Abs(*dir)
 		if err != nil {
-			return fmt.Errorf("无法解析目录: %w", err)
+			return fmt.Errorf("cannot resolve directory: %w", err)
 		}
 	}
 
-	var apiKey string
+	var cfg config.Config
 	if *dryRun {
-		apiKey = "dry-run"
+		cfg = config.Config{APIKey: "dry-run", Lang: "en", Glyph: "nerd"}
+		if c, err := config.Load(); err == nil || errors.Is(err, config.ErrNoAPIKey) {
+			if c.Lang != "" {
+				cfg.Lang = c.Lang
+			}
+			if c.Glyph != "" {
+				cfg.Glyph = c.Glyph
+			}
+		}
 	} else {
-		cfg, err := config.Load()
+		cfg, err = config.Load()
 		if err != nil {
 			if !errors.Is(err, config.ErrNoAPIKey) {
 				return err
@@ -71,16 +80,21 @@ func Run(args []string) error {
 			if perr != nil {
 				return perr
 			}
-			if err := config.SaveAPIKey(key); err != nil {
+			if err := config.Save(config.Config{APIKey: key, Lang: cfg.Lang, Glyph: cfg.Glyph}); err != nil {
 				return err
 			}
 			cfg.APIKey = key
-			fmt.Println("API key 已保存到", mustConfigPath())
+			fmt.Println("API key saved to", mustConfigPath())
 		}
-		apiKey = cfg.APIKey
+	}
+	if cfg.Glyph == "" {
+		cfg.Glyph = "nerd"
+	}
+	if cfg.Lang == "" {
+		cfg.Lang = "en"
 	}
 
-	client := typesafe.NewClient(apiKey, *model)
+	client := typesafe.NewClient(cfg.APIKey, *model)
 	s := scan.NewScanner(client, scan.Options{
 		Concurrency: *concur,
 		RPS:         *rps,
@@ -92,22 +106,22 @@ func Run(args []string) error {
 		return err
 	}
 	if *dryRun {
-		fmt.Printf("将扫描 %d 个文件（跳过项标注）:\n", countScannable(results))
+		fmt.Printf(render.T(cfg.Lang, "dryrun_header")+"\n", countScannable(results))
 	}
-	fmt.Print(render.Table(results, *width))
+	fmt.Print(render.Table(results, *width, cfg.Lang, cfg.Glyph))
 	return nil
 }
 
 // promptKey 首次运行时从 stdin 读取 API key。
 func promptKey() (string, error) {
-	fmt.Fprint(os.Stderr, "首次运行需要 TypeSafe API key（可从 https://console.typesafe.ai/ 获取）: ")
+	fmt.Fprint(os.Stderr, "TypeSafe API key required (get one at https://console.typesafe.ai/): ")
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
-		return "", fmt.Errorf("读取 API key 失败: %w", err)
+		return "", fmt.Errorf("cannot read API key: %w", err)
 	}
 	key := strings.TrimSpace(line)
 	if key == "" {
-		return "", errors.New("API key 不能为空")
+		return "", errors.New("API key cannot be empty")
 	}
 	return key, nil
 }
@@ -134,16 +148,20 @@ func countScannable(rs []scan.FileResult) int {
 
 // usage 打印帮助。
 func usage() {
-	fmt.Fprintf(os.Stderr, `codesafe — 用 TypeSafe System One 对 git 跟踪文件做逐文件安全/缺陷粗筛
+	fmt.Fprintf(os.Stderr, `codesafe — fast per-file safety/bug triage via the TypeSafe System One API
 
-用法:
+Usage:
   codesafe [flags]
 
 Flags:
 `)
+	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
+	_ = fs
 	flag.PrintDefaults()
 	fmt.Fprintf(os.Stderr, `
-首次运行会提示输入 API key 并保存到用户配置目录；之后直接运行。
-使用 --config <key> 可随时更新。
+On first run you will be prompted for your API key, saved to the user config dir.
+Update values any time with:
+  codesafe --config api_key=<key>
+  codesafe --config lang=zh     (switch output to Chinese; default en)
 `)
 }
