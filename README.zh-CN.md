@@ -1,10 +1,22 @@
+<div align="center">
+
+<img src="assets/icon-256.png" width="120" alt="codesafe">
+
 # codesafe
 
-<img src="assets/icon-256.png" width="96" alt="codesafe 图标">
+**面向 AI 辅助工作流的 commit 安全 CLI**
 
-一个面向 AI 辅助工作流的 commit 安全 CLI，基于 [TypeSafe System One API](https://docs.typesafe.ai)。它把 diff 分类成 conventional-commit `type(scope)`，用模型判定的规则守护 `git commit` 和文件删除，并通过 `codesafe.yaml` 强制项目级约定。
+把 diff 分类成 conventional-commit `type(scope)`，用模型判定的规则守护 `git commit` 与文件删除，并通过 `codesafe.yaml` 强制项目级约定。
 
-[English](README.md)
+[![Release](https://img.shields.io/github/v/release/LingyeNBird/codesafe?style=flat-square)](https://github.com/LingyeNBird/codesafe/releases)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](COPYING)
+[![Powered by TypeSafe](https://img.shields.io/badge/powered%20by-TypeSafe%20System%20One-2fe08a?style=flat-square)](https://docs.typesafe.ai)
+
+[English](README.md) · [Releases](https://github.com/LingyeNBird/codesafe/releases) · [API 文档](https://docs.typesafe.ai)
+
+</div>
+
+---
 
 ## 安装
 

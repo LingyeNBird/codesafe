@@ -1,10 +1,22 @@
+<div align="center">
+
+<img src="assets/icon-256.png" width="120" alt="codesafe">
+
 # codesafe
 
-<img src="assets/icon-256.png" width="96" alt="codesafe icon">
+**A commit-safety CLI for AI-assisted workflows**
 
-A commit-safety CLI for AI-assisted workflows, backed by the [TypeSafe System One API](https://docs.typesafe.ai). It classifies your diff into a conventional-commit `type(scope)`, guards `git commit` and file deletion behind model-judged rules, and enforces per-project conventions from a `codesafe.yaml`.
+Classify your diff into a conventional-commit `type(scope)`, guard `git commit` and file deletion behind model-judged rules, and enforce per-project conventions from a `codesafe.yaml`.
 
-[中文文档](README.zh-CN.md)
+[![Release](https://img.shields.io/github/v/release/LingyeNBird/codesafe?style=flat-square)](https://github.com/LingyeNBird/codesafe/releases)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue?style=flat-square)](COPYING)
+[![Powered by TypeSafe](https://img.shields.io/badge/powered%20by-TypeSafe%20System%20One-2fe08a?style=flat-square)](https://docs.typesafe.ai)
+
+[中文文档](README.zh-CN.md) · [Releases](https://github.com/LingyeNBird/codesafe/releases) · [API Docs](https://docs.typesafe.ai)
+
+</div>
+
+---
 
 ## Install
 
@@ -20,8 +32,6 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 | Linux (x64) | `codesafe-linux-amd64` |
 | macOS (Apple Silicon) | `codesafe-darwin-arm64` |
 | macOS (Intel) | `codesafe-darwin-amd64` |
-
-## Commands
 
 | Command | What it does |
 |---|---|
