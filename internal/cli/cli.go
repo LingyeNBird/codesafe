@@ -30,6 +30,8 @@ func Run(args []string) error {
 			return runDiff(args[1:])
 		case "commit":
 			return runCommit(args[1:])
+		case "init":
+			return runInit(args[1:])
 		}
 	}
 	return runClassify(args)
