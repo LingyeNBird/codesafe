@@ -27,17 +27,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
-
-      # 四个平台各自构建到独立目录，二进制名统一为 codesafe / codesafe.exe；
-      # 上传时用 "路径#资产名" 给资产起带平台的别名，文件本身不带版本号。
+      # 构建成带平台名的文件，资产名=文件名；解压/重命名为 codesafe 由用户完成
       - name: Build all platforms
         run: |
-          go build -ldflags="-s -w" -o out/windows-amd64/codesafe.exe ./cmd/codesafe
-          $env:GOOS="linux";  $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/linux-amd64/codesafe  ./cmd/codesafe
-          $env:GOOS="darwin"; $env:GOARCH="arm64"; go build -ldflags="-s -w" -o out/darwin-arm64/codesafe ./cmd/codesafe
-          $env:GOOS="darwin"; $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/darwin-amd64/codesafe ./cmd/codesafe
+          go build -ldflags="-s -w" -o out/codesafe-windows-amd64.exe ./cmd/codesafe
+          $env:GOOS="linux";  $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/codesafe-linux-amd64  ./cmd/codesafe
+          $env:GOOS="darwin"; $env:GOARCH="arm64"; go build -ldflags="-s -w" -o out/codesafe-darwin-arm64 ./cmd/codesafe
+          $env:GOOS="darwin"; $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/codesafe-darwin-amd64 ./cmd/codesafe
           Remove-Item Env:GOOS, Env:GOARCH
 
       - name: Compute changelog range
@@ -77,9 +73,8 @@ jobs:
           [完整变更记录](https://github.com/${REPO}/compare/${RANGE})
           EOF
           gh release create "v${V}" --title "v${V}" --notes-file notes.md
-          # gh release create 不支持 "路径#别名"，需用 upload 指定资产名
           gh release upload "v${V}" --clobber \
-            "out/windows-amd64/codesafe.exe#codesafe-windows-amd64.exe" \
-            "out/linux-amd64/codesafe#codesafe-linux-amd64" \
-            "out/darwin-arm64/codesafe#codesafe-darwin-arm64" \
-            "out/darwin-amd64/codesafe#codesafe-darwin-amd64"
+            out/codesafe-windows-amd64.exe \
+            out/codesafe-linux-amd64 \
+            out/codesafe-darwin-arm64 \
+            out/codesafe-darwin-amd64
