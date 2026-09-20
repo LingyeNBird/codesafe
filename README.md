@@ -41,6 +41,7 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 | `codesafe delete <path>` | Judge safety before deleting — `safe` deletes, `sensitive` quarantines, `dangerous` aborts. |
 | `codesafe init` | Write a commented `codesafe.yaml` template + print an AI prompt for filling it. |
 | `codesafe agent` | Print a rules block to paste into `AGENTS.md` / `CLAUDE.md` so AI agents use codesafe. |
+| `codesafe todo <task>` | Set the current task; `commit`/`diff` verify the diff implements it. |
 
 ### Classify (default)
 
@@ -68,6 +69,16 @@ Checks `commit_rules` (e.g. subject must be Chinese), then `rules` against the s
 ```
 
 Verdicts: `safe` → `os.RemoveAll`; `sensitive` → moved to a quarantine dir under the system temp dir (recoverable); `dangerous` → aborts.
+
+### Task TODO
+
+```sh
+./codesafe todo "add OAuth login"   # record the current task for this repo
+./codesafe todo                     # show it
+./codesafe todo --clear             # clear it (also auto-cleared on successful commit)
+```
+
+When a todo is set, `codesafe commit`/`codesafe diff` additionally ask the model whether the diff implements that task — a mismatch aborts the commit. Rules may embed `{{TODO}}` in `text`/`pass`/`fail` to reference the current task; `todo_mode` (`off`|`loose`|`strict`, default `loose`) controls whether a `{{TODO}}` rule requires a set todo — `strict` aborts the commit when no todo is set, and can be set per-rule.
 
 ### Project config — `codesafe.yaml`
 

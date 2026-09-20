@@ -88,7 +88,7 @@ to every project — only rules specific to this one.
 const sampleYAML = `lang: zh                        # en | zh — output language
 allow_none: true                # allow scope=none for cross-cutting commits
 prefix_conflict: override       # keep_user | override — what to do when -m already has type(scope):
-
+todo_mode: loose                # off | loose | strict — strict requires a set todo to commit
 scopes:                          # this project's scope vocabulary — name: description pairs
   cli:     "command-line entrypoint / flag parsing"
   api:     "HTTP/RPC server layer"
@@ -110,6 +110,12 @@ rules:                           # code rules checked against the diff (diff / c
     text: every function must carry a comment (one line for small, multi-line for large)
     pass: all functions have comments
     fail: a function lacks a comment
+  - id: implements-todo        # {{TODO}} is replaced by the task set via codesafe todo
+    level: error
+    todo_mode: strict          # this rule alone may require a set todo
+    text: the diff must implement {{TODO}}
+    pass: the diff implements the task
+    fail: the diff does not implement the task
 
 commit_rules:                    # rules about the commit message itself (commit only)
   - id: subject-zh

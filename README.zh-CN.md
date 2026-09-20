@@ -43,6 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 | `codesafe delete <path>` | 删前判安全性：`safe` 删除、`sensitive` 移回收、`dangerous` 中断。 |
 | `codesafe init` | 生成注释模板 `codesafe.yaml` + 打印给 AI 的配置提示词。 |
 | `codesafe agent` | 打印一段贴进 `AGENTS.md`/`CLAUDE.md` 的规则，让 AI 用 codesafe。 |
+| `codesafe todo <任务>` | 记录当前任务；`commit`/`diff` 会判定 diff 是否实现了它。 |
 
 ### 分类（默认）
 
@@ -68,8 +69,18 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 ./codesafe delete build/ --check  # 只输出判定，不删不移
 ./codesafe delete tmp/ --yes      # 跳过判定
 ```
-
 判定：`safe` → `os.RemoveAll`；`sensitive` → 移到系统临时目录下的回收目录（可恢复）；`dangerous` → 中断。
+
+### 任务 TODO
+
+```sh
+./codesafe todo "加 OAuth 登录"    # 记录本仓库当前任务
+./codesafe todo                    # 查看
+./codesafe todo --clear            # 清空（commit 成功也会自动清空）
+```
+
+设了 TODO 后，`codesafe commit`/`codesafe diff` 会额外问模型 diff 是否实现了该任务——没实现就中断提交。规则可在 `text`/`pass`/`fail` 里用 `{{TODO}}` 引用当前任务；`todo_mode`（`off`|`loose`|`strict`，默认 `loose`）控制含 `{{TODO}}` 的规则是否强制要求已设 TODO——`strict` 在 TODO 为空时中断提交，也可在单条规则上覆盖。
+
 
 ### 项目配置 `codesafe.yaml`
 

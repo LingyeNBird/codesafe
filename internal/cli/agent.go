@@ -47,6 +47,17 @@ refuses, stop and report, never work around it.
 - Scope vocabulary: the project may define scopes in codesafe.yaml; otherwise
   codesafe screens a built-in set against the directory tree and caches it.
 
+## Task tracking (TODO)
+
+- "codesafe todo <task>" records the current task for this repo. "codesafe
+  todo" shows it, "codesafe todo --clear" clears it. A successful
+  "codesafe commit" clears it automatically.
+- When a todo is set, "codesafe commit"/"codesafe diff" also ask the model
+  whether the diff implements that task; a mismatch aborts the commit.
+- codesafe.yaml "rules" may embed {{TODO}} in text/pass/fail — it is replaced
+  with the current task text. todo_mode: off|loose|strict controls whether a
+  {{TODO}} rule requires a set todo (strict aborts when empty).
+
 ## Config
 
 - Per-project rules/scopes live in codesafe.yaml at the repo root. Scaffold it
