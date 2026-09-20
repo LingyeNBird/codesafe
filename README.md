@@ -1,5 +1,7 @@
 # codesafe
 
+<img src="assets/icon.svg" width="96" alt="codesafe icon">
+
 A commit-safety CLI for AI-assisted workflows, backed by the [TypeSafe System One API](https://docs.typesafe.ai). It classifies your diff into a conventional-commit `type(scope)`, guards `git commit` and file deletion behind model-judged rules, and enforces per-project conventions from a `codesafe.yaml`.
 
 [中文文档](README.zh-CN.md)

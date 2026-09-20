@@ -1,5 +1,7 @@
 # codesafe
 
+<img src="assets/icon.svg" width="96" alt="codesafe 图标">
+
 一个面向 AI 辅助工作流的 commit 安全 CLI，基于 [TypeSafe System One API](https://docs.typesafe.ai)。它把 diff 分类成 conventional-commit `type(scope)`，用模型判定的规则守护 `git commit` 和文件删除，并通过 `codesafe.yaml` 强制项目级约定。
 
 [English](README.md)
