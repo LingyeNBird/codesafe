@@ -1,6 +1,6 @@
 # codesafe
 
-用 [TypeSafe System One API](https://docs.typesafe.ai) 为你的暂存区或工作区 diff 建议一个 **conventional-commit `type(scope)`**。它读取你的改动并选出 commit 类型和 scope，让 AI 和脚本不用手分类就能拿到一致的 `type(scope)` 建议。
+一个面向 AI 辅助工作流的 commit 安全 CLI，基于 [TypeSafe System One API](https://docs.typesafe.ai)。它把 diff 分类成 conventional-commit `type(scope)`，用模型判定的规则守护 `git commit` 和文件删除，并通过 `codesafe.yaml` 强制项目级约定。
 
 [English](README.md)
 
@@ -19,67 +19,97 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 | macOS (Apple Silicon) | `codesafe-darwin-arm64` |
 | macOS (Intel) | `codesafe-darwin-amd64` |
 
-## 使用
+## 命令
+
+| 命令 | 作用 |
+|---|---|
+| `codesafe` | 给暂存/工作区 diff 建议 `type(scope)`（单行，可接进 `git commit -m`）。 |
+| `codesafe commit -m ...` | 校验 message+代码规则 → 生成前缀 → 执行 `git commit`。 |
+| `codesafe diff` | 按 `codesafe.yaml` 的 `rules` 检查 diff，报告违反项。 |
+| `codesafe delete <path>` | 删前判安全性：`safe` 删除、`sensitive` 移回收、`dangerous` 中断。 |
+| `codesafe init` | 生成注释模板 `codesafe.yaml` + 打印给 AI 的配置提示词。 |
+| `codesafe agent` | 打印一段贴进 `AGENTS.md`/`CLAUDE.md` 的规则，让 AI 用 codesafe。 |
+
+### 分类（默认）
 
 ```sh
-# 首次运行会提示输入 TypeSafe API key（console.typesafe.ai 获取）并保存
-# 分析暂存区 diff（无暂存时退到工作区 diff）
-./codesafe
-
-# 分析指定 commit
-./codesafe --source 5b5e054
-
-# 只分析工作区（未暂存）改动
-./codesafe --source worktree
-
-# 输出语言
-./codesafe --config lang=zh       # 中文
-./codesafe --config lang=en       # 英文
-
-# 持久化配置
-./codesafe --config api_key=<key>
-./codesafe --config scopes=cli|server|web|docs   # 你的 scope 名
-
-# 临时覆盖，仅本次生效、不落盘
-./codesafe --set api_key=<key>
-./codesafe --set lang=en
+./codesafe                    # 暂存 diff，否则工作区 → 输出如 "feat(cli)!"
+./codesafe --detail           # 完整百分比 + token/费用统计
+./codesafe --source worktree  # 只查未暂存；--source <sha> 查某 commit
+./codesafe --source staged    # 只查暂存
 ```
 
-输出为建议的 `type`、`scope`，各自带置信度与备选，以及合并的 `type(scope)` 建议。
+### 守护式提交
 
-## 项目 scope
+```sh
+./codesafe commit -m "重构为 conventional-commit 分类器" -m "- 新增 scope 筛选"
+```
 
-内置一组通用 scope（`app`、`ui`、`api`、`cli`、`docs`……）。按项目覆盖以贴合你的仓库约定。
+先查 `commit_rules`（如 subject 须中文），再对暂存 diff 查 `rules`，生成前缀后执行 `git commit`。第一个 `-m` 自带的 `type(scope):` 前缀按 `prefix_conflict`（`keep_user`/`override`）决定保留或替换。
 
-**随仓库分发**（协作共享）——在仓库根建 `codesafe.yaml`：
+### 守护式删除
+
+```sh
+./codesafe delete build/          # 先判定再执行
+./codesafe delete build/ --check  # 只输出判定，不删不移
+./codesafe delete tmp/ --yes      # 跳过判定
+```
+
+判定：`safe` → `os.RemoveAll`；`sensitive` → 移到系统临时目录下的回收目录（可恢复）；`dangerous` → 中断。
+
+### 项目配置 `codesafe.yaml`
 
 ```yaml
-allow_none: false        # 可选：禁止 scope=none（强制每个 commit 带具体 scope）
-scopes:
-  - server
-  - web: 前端界面
-  - installer
-  - cli
+lang: zh
+allow_none: true
+prefix_conflict: override
+
+scopes:                    # 本项目的 scope 词表
+  cli:    "命令行入口与子命令"
+  api:    "HTTP/RPC 层"
+  ci:     "CI / release workflow"
+
+rules:                     # 代码规则——对 diff 检查
+  - id: vue-css-split
+    level: error           # error 中断 · warn 只提示
+    files: "*.vue"         # diff 触及匹配文件才问
+    text: .vue 文件不得内联 <style> 块，CSS 拆到同名 .css
+    pass: 所有 .vue 样式都在外部 .css
+    fail: 存在 .vue 内联 <style>
+
+commit_rules:              # 针对 commit message 本身的规则
+  - id: subject-zh
+    on: subject            # subject | body | prefix | all
+    text: subject 必须是中文
+    pass: subject 主体语言为中文
+    fail: subject 不是中文
 ```
 
-`- 名字` 用名字本身作描述；`- 名字: 描述` 给模型额外提示。
+不写 `scopes` 时，codesafe 用内置词表对目录树做筛选（项目是 CLI 时 `cli` 这类词会被判"整体即此物"而剔除），结果按项目缓存。
 
-**用户级**（仅本机、不提交）：
+### 给 AI 用
 
 ```sh
-./codesafe --config scopes=server|web|cli|installer
-./codesafe --config nonescope=false     # 禁止 none scope
+./codesafe agent           # 打印一段贴进 AGENTS.md / CLAUDE.md 的规则
 ```
 
-优先级：`codesafe.yaml` > `--config scopes` > 内置集。
+把输出贴进你的 agent 规则文件，AI 就会用 `codesafe delete`/`commit`/`diff` 代替裸 `rm`/`git commit`。
 
-### `none` scope
+## 配置
 
-scope 集默认提供 `none`（"跨模块改动、无单一区域"）——遇到不属于任何单一 scope 的全仓改动时选它，建议输出不带括号（如 `feat!:`）。若项目要求每个 commit 必须带具体 scope，用 `codesafe.yaml` 的 `allow_none: false` 或 `./codesafe --config nonescope=false` 关掉。
+```sh
+./codesafe --config api_key=<key>          # 存 TypeSafe key（console.typesafe.ai）
+./codesafe --config lang=zh|en
+./codesafe --config scopes=cli|server|web
+./codesafe --config nonescope=false
+./codesafe --set lang=en                   # 单次覆盖，不落盘
+```
+
+优先级：`codesafe.yaml` > `--config` > 内置/筛选默认。
 
 ## API key
 
-在 [console.typesafe.ai](https://console.typesafe.ai) 获取。首次运行提示并保存到用户配置目录（权限 `0600`）。
+到 [console.typesafe.ai](https://console.typesafe.ai) 获取。首次运行提示输入并存到用户配置目录（`0600`）。
 
 ## License
 
