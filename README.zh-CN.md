@@ -104,7 +104,7 @@ rules:                     # 代码规则——对 diff 检查
 
 commit_rules:              # 针对 commit message 本身的规则
   - id: subject-zh
-    on: subject            # subject | body | prefix | all
+    on: subject            # subject | body | prefix | all — prefix 仅在 prefix_conflict=keep_user 时生效
     text: subject 必须是中文
     pass: subject 主体语言为中文
     fail: subject 不是中文

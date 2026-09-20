@@ -47,6 +47,8 @@ const yamlTemplate = `# codesafe.yaml — per-project config for the codesafe co
 #
 # # commit_rules — rules about the commit message itself, checked by "codesafe commit".
 # # on = which part to check: subject | body | prefix | all.
+# #   prefix only applies when prefix_conflict=keep_user (validates a user-supplied
+# #   prefix); in override mode such rules are skipped — codesafe regenerates it.
 # commit_rules:
 #   - id: subject-zh
 #     on: subject
@@ -125,7 +127,7 @@ rules:                           # code rules checked against the diff (diff / c
 
 commit_rules:                    # rules about the commit message itself (commit only)
   - id: subject-zh
-    on: subject                  # subject | body | prefix | all — which part of the message
+    on: subject                  # subject|body|prefix|all — prefix only under prefix_conflict=keep_user
     text: the subject must be in Chinese (technical terms may stay English)
     pass: the subject is primarily Chinese
     fail: the subject is not Chinese

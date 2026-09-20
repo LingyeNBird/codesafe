@@ -102,7 +102,7 @@ rules:                     # code rules — checked against the diff
 
 commit_rules:              # rules about the commit message itself
   - id: subject-zh
-    on: subject            # subject | body | prefix | all
+    on: subject            # subject | body | prefix | all — prefix only applies under prefix_conflict=keep_user
     text: the subject must be in Chinese
     pass: the subject is primarily Chinese
     fail: the subject is not Chinese
