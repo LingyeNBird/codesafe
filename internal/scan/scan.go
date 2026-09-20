@@ -8,6 +8,7 @@ package scan
 
 import (
 	"context"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -24,14 +25,19 @@ type FileResult struct {
 	Skipped bool               // 二进制/超限/secret/读取失败
 	SkipWhy string
 	Err     error
-	content string // 文件内容，仅扫描期间使用
+	// 统计字段（仅成功请求后填充）
+	TokensIn int           // 该文件请求的输入 token 数
+	ReqTime  time.Duration // 该文件请求的耗时
+	content  string        // 文件内容，仅扫描期间使用
 }
 
 // Options 控制扫描行为。
 type Options struct {
-	Concurrency int     // 并发请求数
-	RPS         float64 // 每秒请求上限（全局限速）
-	DryRun      bool    // 只列文件不发请求
+	Concurrency int               // 并发请求数
+	RPS         float64           // 每秒请求上限（全局限速）
+	DryRun      bool              // 只列文件不发请求
+	Overrides   map[string]string // 绝对路径 -> "code"|"config"|"doc"，覆盖后缀分类
+	Force       bool              // 为 true 时跳过 secret 过滤（配合 --files 强扫）
 }
 
 // Scanner 执行扫描。
@@ -52,8 +58,9 @@ func NewScanner(client *typesafe.Client, opts Options) *Scanner {
 }
 
 // Run 枚举 root 下的文件并返回按总分降序的结果。
-func (s *Scanner) Run(ctx context.Context, root string) ([]FileResult, error) {
-	files, err := ListFiles(root)
+// Subdir 限定扫描子树；ForceList 非空时强制只扫给定文件（绕过 git 跟踪与 secret 过滤）。
+func (s *Scanner) Run(ctx context.Context, root, subdir string, forceFiles []string) ([]FileResult, error) {
+	files, err := ListFiles(root, subdir, forceFiles)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +71,10 @@ func (s *Scanner) Run(ctx context.Context, root string) ([]FileResult, error) {
 }
 
 // classify 读取并分类一个文件，填充 Skipped/Kind/content；跳过时 content 为空。
-func classify(root, rel string, r *FileResult) {
+// 分类顺序：secret 跳过（ForceList 时除外）→ 读取/二进制过滤 → override 覆盖 → 后缀分类。
+func (s *Scanner) classify(root, rel string, r *FileResult) {
 	r.Path = rel
-	if IsSecret(rel) {
+	if !s.opts.Force && IsSecret(rel) {
 		r.Skipped, r.SkipWhy = true, "凭据文件"
 		return
 	}
@@ -79,8 +87,31 @@ func classify(root, rel string, r *FileResult) {
 		r.Skipped, r.SkipWhy = true, "二进制或过大"
 		return
 	}
-	r.Kind = Classify(rel)
+	if kind, hit := s.override(root, rel); hit {
+		r.Kind = kind
+	} else {
+		r.Kind = Classify(rel)
+	}
 	r.content = content
+}
+
+// override 查绝对路径是否被 --config override 指定了扫描方式。
+func (s *Scanner) override(root, rel string) (FileKind, bool) {
+	if s.opts.Overrides == nil {
+		return 0, false
+	}
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	kind, ok := s.opts.Overrides[abs]
+	if !ok {
+		return 0, false
+	}
+	switch kind {
+	case "config":
+		return KindConfig, true
+	case "doc":
+		return KindDoc, true
+	}
+	return KindCode, true
 }
 
 // dryRun 对每个文件做同样的过滤和分类，但不发请求；Probs 填 0 占位让列渲染出来。
@@ -88,7 +119,7 @@ func (s *Scanner) dryRun(root string, files []string) []FileResult {
 	results := make([]FileResult, 0, len(files))
 	for _, rel := range files {
 		var r FileResult
-		classify(root, rel, &r)
+		s.classify(root, rel, &r)
 		if !r.Skipped {
 			r.Probs = map[string]float64{}
 			if r.Kind == KindCode {
@@ -116,7 +147,7 @@ func (s *Scanner) scanAll(ctx context.Context, root string, files []string) []Fi
 	var wg sync.WaitGroup
 	for i, rel := range files {
 		r := &results[i]
-		classify(root, rel, r)
+		s.classify(root, rel, r)
 		if r.Skipped {
 			continue
 		}
@@ -133,11 +164,14 @@ func (s *Scanner) scanAll(ctx context.Context, root string, files []string) []Fi
 			case <-tick.C:
 			}
 			state := map[string]string{"path": r.Path, "content": r.content}
-			probs, err := s.client.Evaluate(ctx, state, questions)
+			start := time.Now()
+			probs, usage, err := s.client.Evaluate(ctx, state, questions)
+			r.ReqTime = time.Since(start)
 			if err != nil {
 				r.Err = err
 				return
 			}
+			r.TokensIn = usage.InputTokens
 			r.Probs = probs
 			r.Total = total(r.Kind, probs)
 		}(r, questions)
@@ -179,4 +213,34 @@ func sortResults(rs []FileResult) {
 		}
 		return a.Path < b.Path
 	})
+}
+
+// Stats 是一次扫描的聚合统计。
+type Stats struct {
+	Requests   int           // 成功请求数（含重试后成功的文件）
+	Errors     int           // 请求失败的文件数
+	Skipped    int           // 跳过的文件数
+	TokensIn   int           // 输入 token 总量
+	TokensOut  int           // 输出 token 总量（按 usage 累加，通常为 0 成本）
+	TotalTime  time.Duration // 端到端耗时（由调用方计时）
+	SumReqTime time.Duration // 各文件请求耗时之和（用于看平均）
+}
+
+// Summarize 聚合所有文件结果的统计字段；totalTime 为整次扫描的端到端耗时。
+func Summarize(rs []FileResult, totalTime time.Duration) Stats {
+	var s Stats
+	s.TotalTime = totalTime
+	for _, r := range rs {
+		switch {
+		case r.Skipped:
+			s.Skipped++
+		case r.Err != nil:
+			s.Errors++
+		default:
+			s.Requests++
+			s.TokensIn += r.TokensIn
+			s.SumReqTime += r.ReqTime
+		}
+	}
+	return s
 }

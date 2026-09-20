@@ -63,10 +63,13 @@ type request struct {
 type Response struct {
 	Model   string                     `json:"model"`
 	Answers map[string]json.RawMessage `json:"answers"`
-	Usage   struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-	} `json:"usage"`
+	Usage   Usage                      `json:"usage"`
+}
+
+// Usage 是一次请求的 token 用量。
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
 }
 
 // apiError 是端点返回的错误体。
@@ -81,24 +84,24 @@ type rateLimitError struct{ retryAfter time.Duration }
 
 func (e *rateLimitError) Error() string { return "rate limited" }
 
-// Evaluate 对同一 state 并行求值所有 questions，返回每个问题 id 对应的 noul 概率 (0..1)。
-func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Question) (map[string]float64, error) {
+// Evaluate 对同一 state 并行求值所有 questions，返回每个问题 id 对应的 noul 概率 (0..1) 及 token 用量。
+func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Question) (map[string]float64, Usage, error) {
 	body := request{State: state, Model: c.model, Questions: questions}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return nil, Usage{}, err
 	}
 
 	var lastErr error
 	for attempt := 0; attempt <= c.retries; attempt++ {
 		if attempt > 0 {
 			if !sleep(ctx, backoff(attempt, lastErr)) {
-				return nil, ctx.Err()
+				return nil, Usage{}, ctx.Err()
 			}
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 		if err != nil {
-			return nil, err
+			return nil, Usage{}, err
 		}
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("Content-Type", "application/json")
@@ -118,17 +121,21 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 		if resp.StatusCode == http.StatusOK {
 			var out Response
 			if err := json.Unmarshal(raw, &out); err != nil {
-				return nil, fmt.Errorf("解析响应失败: %w", err)
+				return nil, Usage{}, fmt.Errorf("解析响应失败: %w", err)
 			}
-			return decodeNouls(out.Answers)
+			probs, err := decodeNouls(out.Answers)
+			if err != nil {
+				return nil, Usage{}, err
+			}
+			return probs, out.Usage, nil
 		}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = retryable(resp, raw)
 			continue
 		}
-		return nil, fatal(resp, raw)
+		return nil, Usage{}, fatal(resp, raw)
 	}
-	return nil, fmt.Errorf("请求失败（重试 %d 次后）: %w", c.retries, lastErr)
+	return nil, Usage{}, fmt.Errorf("请求失败（重试 %d 次后）: %w", c.retries, lastErr)
 }
 
 // decodeNouls 把 answers map 里每个 noul 答案解出概率值。

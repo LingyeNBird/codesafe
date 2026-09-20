@@ -45,10 +45,17 @@ go build -o codesafe ./cmd/codesafe
 # List what would be scanned without calling the API
 ./codesafe --dry-run
 
+# Only scan a subdirectory (still respects git tracking)
+./codesafe --subdir src/
+
+# Force-scan specific files, bypassing git-tracking and credential filters
+./codesafe --files "main.go,internal/util.go"
+
 # Update stored settings
 ./codesafe --config api_key=<new-key>
 ./codesafe --config lang=zh      # Chinese labels (default en)
 ./codesafe --config glyph=emoji  # emoji gauge if your terminal lacks Nerd Font
+./codesafe --config override=path/to/file:config  # force a file's scan mode (code|config|doc)
 ```
 
 Output columns: `bug` · `security` · `data` · `deps` · `logic` (Chinese:

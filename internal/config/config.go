@@ -20,9 +20,10 @@ var ErrNoAPIKey = errors.New("api key not configured")
 
 // Config 是持久化到磁盘的配置。
 type Config struct {
-	APIKey string `json:"api_key"`
-	Lang   string `json:"lang"`  // "en"（默认）或 "zh"
-	Glyph  string `json:"glyph"` // "nerd"（默认）或 "emoji"
+	APIKey    string            `json:"api_key"`
+	Lang      string            `json:"lang"`                // "en"（默认）或 "zh"
+	Glyph     string            `json:"glyph"`               // "nerd"（默认）或 "emoji"
+	Overrides map[string]string `json:"overrides,omitempty"` // 绝对路径 -> "code"|"config"|"doc"
 }
 
 // Path 返回配置文件路径：<os.UserConfigDir>/codesafe/config.json。
@@ -105,8 +106,17 @@ func Set(kv string) (Config, error) {
 			return Config{}, fmt.Errorf("glyph must be nerd or emoji, got %q", value)
 		}
 		cfg.Glyph = value
+	case "override":
+		abs, kind, err := parseOverride(value)
+		if err != nil {
+			return Config{}, err
+		}
+		if cfg.Overrides == nil {
+			cfg.Overrides = map[string]string{}
+		}
+		cfg.Overrides[abs] = kind
 	default:
-		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, glyph)", key)
+		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, glyph, override)", key)
 	}
 	if cfg.Lang == "" {
 		cfg.Lang = "en"
@@ -118,4 +128,20 @@ func Set(kv string) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// parseOverride 解析 "路径:kind"（kind ∈ code|config|doc），路径转绝对路径。
+func parseOverride(v string) (absPath, kind string, err error) {
+	path, kind, ok := strings.Cut(v, ":")
+	if !ok || path == "" {
+		return "", "", fmt.Errorf("expected --config override=<path>:<code|config|doc>, got %q", v)
+	}
+	if kind != "code" && kind != "config" && kind != "doc" {
+		return "", "", fmt.Errorf("override kind must be code, config or doc, got %q", kind)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", fmt.Errorf("cannot resolve path %q: %w", path, err)
+	}
+	return abs, kind, nil
 }

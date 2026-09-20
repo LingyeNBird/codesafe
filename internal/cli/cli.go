@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"codesafe/internal/config"
 	"codesafe/internal/render"
@@ -27,14 +28,16 @@ func Run(args []string) error {
 	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
 	var (
 		dir     = fs.String("dir", ".", "directory to scan (default: current)")
-		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh")
+		subdir  = fs.String("subdir", "", "only scan this subdirectory within --dir")
+		files   = fs.String("files", "", "comma-separated file list to force-scan (bypasses git/credential filters)")
+		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh | glyph=nerd|emoji | override=<path>:<code|config|doc>")
 		dryRun  = fs.Bool("dry-run", false, "list files that would be scanned without calling the API")
 		model   = fs.String("model", "jev-latest", "TypeSafe model ID or alias")
 		width   = fs.Int("width", 40, "path column display width")
 		concur  = fs.Int("concurrency", 16, "concurrent request count")
 		rps     = fs.Float64("rps", 20, "max requests per second")
 	)
-	fs.Usage = usage
+	fs.Usage = usage(fs)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -69,6 +72,7 @@ func Run(args []string) error {
 			if c.Glyph != "" {
 				cfg.Glyph = c.Glyph
 			}
+			cfg.Overrides = c.Overrides // 覆盖规则在 dry-run 也生效
 		}
 	} else {
 		cfg, err = config.Load()
@@ -94,21 +98,37 @@ func Run(args []string) error {
 		cfg.Lang = "en"
 	}
 
+	var forceFiles []string
+	if *files != "" {
+		for _, f := range strings.Split(*files, ",") {
+			if f = strings.TrimSpace(f); f != "" {
+				forceFiles = append(forceFiles, f)
+			}
+		}
+	}
+
 	client := typesafe.NewClient(cfg.APIKey, *model)
 	s := scan.NewScanner(client, scan.Options{
 		Concurrency: *concur,
 		RPS:         *rps,
 		DryRun:      *dryRun,
+		Overrides:   cfg.Overrides,
+		Force:       len(forceFiles) > 0,
 	})
 
-	results, err := s.Run(context.Background(), root)
+	start := time.Now()
+	results, err := s.Run(context.Background(), root, *subdir, forceFiles)
 	if err != nil {
 		return err
 	}
+	totalTime := time.Since(start)
 	if *dryRun {
 		fmt.Printf(render.T(cfg.Lang, "dryrun_header")+"\n", countScannable(results))
 	}
 	fmt.Print(render.Table(results, *width, cfg.Lang, cfg.Glyph))
+	if !*dryRun {
+		fmt.Print(render.Summary(scan.Summarize(results, totalTime), cfg.Lang))
+	}
 	return nil
 }
 
@@ -146,22 +166,24 @@ func countScannable(rs []scan.FileResult) int {
 	return n
 }
 
-// usage 打印帮助。
-func usage() {
-	fmt.Fprintf(os.Stderr, `codesafe — fast per-file safety/bug triage via the TypeSafe System One API
+// usage 打印帮助；fs 为已注册全部 flag 的集合。
+func usage(fs *flag.FlagSet) func() {
+	return func() {
+		fmt.Fprintf(os.Stderr, `codesafe — fast per-file safety/bug triage via the TypeSafe System One API
 
 Usage:
   codesafe [flags]
 
 Flags:
 `)
-	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
-	_ = fs
-	flag.PrintDefaults()
-	fmt.Fprintf(os.Stderr, `
+		fs.PrintDefaults()
+		fmt.Fprintf(os.Stderr, `
 On first run you will be prompted for your API key, saved to the user config dir.
 Update values any time with:
   codesafe --config api_key=<key>
-  codesafe --config lang=zh     (switch output to Chinese; default en)
+  codesafe --config lang=zh                     (output in Chinese; default en)
+  codesafe --config glyph=emoji                 (emoji gauge instead of Nerd Font)
+  codesafe --config override=<path>:<kind>      (force a file's scan mode: code|config|doc)
 `)
+	}
 }

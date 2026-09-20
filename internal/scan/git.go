@@ -109,11 +109,39 @@ func RepoRoot(dir string) (string, error) {
 }
 
 // ListFiles 返回要扫描的相对路径列表：git 仓库用 git ls-files，否则遍历 root。
-func ListFiles(root string) ([]string, error) {
-	if isGitRepo(root) {
-		return trackedFiles(root)
+// subdir 非空时只保留该前缀下的文件；files 非空时强制只扫给定路径列表（忽略 git/secret 过滤）。
+func ListFiles(root, subdir string, files []string) ([]string, error) {
+	if len(files) > 0 {
+		var out []string
+		for _, f := range files {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				out = append(out, filepath.ToSlash(f))
+			}
+		}
+		return out, nil
 	}
-	return walkFiles(root)
+	var list []string
+	var err error
+	if isGitRepo(root) {
+		list, err = trackedFiles(root)
+	} else {
+		list, err = walkFiles(root)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if subdir != "" {
+		prefix := strings.Trim(filepath.ToSlash(subdir), "/") + "/"
+		var filtered []string
+		for _, f := range list {
+			if strings.HasPrefix(f, prefix) {
+				filtered = append(filtered, f)
+			}
+		}
+		return filtered, nil
+	}
+	return list, nil
 }
 
 // isGitRepo 判断 root 是否在 git 仓库内。

@@ -36,12 +36,14 @@ var i18n = map[string]map[string]string{
 		"dependency": "deps", "logic": "logic", "format": "format",
 		"skip": "skipped", "error": "error",
 		"dryrun_header": "Would scan %d files (skips marked):",
+		"summary":       "Summary: %d requests, %d errors, %d skipped | %d tokens in | total %v | avg %.1fs/req",
 	},
 	"zh": {
 		"bug": "缺陷", "security": "安全", "data_ops": "数据",
 		"dependency": "依赖", "logic": "逻辑", "format": "格式",
 		"skip": "跳过", "error": "错误",
 		"dryrun_header": "将扫描 %d 个文件（跳过项标注）:",
+		"summary":       "汇总: %d 次请求, %d 个失败, %d 个跳过 | 共 %d 输入 token | 总耗时 %v | 平均 %.1fs/次",
 	},
 }
 
@@ -145,4 +147,14 @@ func Table(results []scan.FileResult, width int, lang, glyphMode string) string 
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+// Summary 渲染末尾聚合统计行。
+func Summary(s scan.Stats, lang string) string {
+	var avg float64
+	if s.Requests > 0 {
+		avg = s.SumReqTime.Seconds() / float64(s.Requests)
+	}
+	return dim + fmt.Sprintf(T(lang, "summary"),
+		s.Requests, s.Errors, s.Skipped, s.TokensIn, s.TotalTime, avg) + reset + "\n"
 }

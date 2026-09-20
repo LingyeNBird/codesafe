@@ -37,10 +37,17 @@ go build -o codesafe ./cmd/codesafe
 # 只列出将被扫描的文件，不调用 API
 ./codesafe --dry-run
 
+# 只扫某个子目录（仍遵守 git 跟踪）
+./codesafe --subdir src/
+
+# 强制扫描指定文件，绕过 git 跟踪与凭据过滤
+./codesafe --files "main.go,internal/util.go"
+
 # 更新设置
 ./codesafe --config api_key=<new-key>
 ./codesafe --config lang=zh       # 中文标签（默认 en）
 ./codesafe --config glyph=emoji   # 终端无 Nerd Font 时改用 emoji 圆环
+./codesafe --config override=路径:config  # 强制某文件的扫描方式（code|config|doc）
 
 # 调整并发/请求速率（默认 16 并发，20 req/s）
 ./codesafe --concurrency 32 --rps 30
