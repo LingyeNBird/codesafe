@@ -68,7 +68,7 @@ func runCommit(args []string) error {
 	// 1) commit_rules + 有无前缀判定：一个请求，state=完整 message
 	subject := msgs[0]
 	userPrefix := ""
-	res, modelHasPrefix, err := scan.CheckCommitRules(ctx, client, raw, pc.CommitRules)
+	res, modelHasPrefix, err := scan.CheckCommitRules(ctx, client, raw, pc.CommitRules, pc.PrefixConflict == "keep_user")
 	if err != nil {
 		return err
 	}

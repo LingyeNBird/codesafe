@@ -284,12 +284,19 @@ func IsTokenLimit(err error) bool {
 // CheckCommitRules 检查 commit message 规则。接收原始 -m 全文（不预拆），每条规则 instructions
 // 里声明作用部分（subject/body/prefix/all），模型自行定位。同批附带"是否含前缀"判定。
 // 返回 (逐规则结果, 是否检测到前缀, error)。
-func CheckCommitRules(ctx context.Context, client *typesafe.Client, rawMessage string, rules []config.Rule) ([]RuleResult, bool, error) {
+func CheckCommitRules(ctx context.Context, client *typesafe.Client, rawMessage string, rules []config.Rule, keepUserPrefix bool) ([]RuleResult, bool, error) {
 	qs := map[string]typesafe.Question{}
 	var applicable []config.Rule
+	var skipped []RuleResult
 	for _, r := range rules {
 		if r.ID == "" {
 			r.ID = r.Text
+		}
+		// on:prefix 仅在 prefix_conflict=keep_user 时有意义（用户前缀被保留才需校验）；
+		// override 模式下前缀由 codesafe 重新生成，此类规则跳过。
+		if r.On == "prefix" && !keepUserPrefix {
+			skipped = append(skipped, RuleResult{Rule: r, Pass: true, Skip: true})
+			continue
 		}
 		part := commitPart(r.On)
 		qs[r.ID] = typesafe.Noul(
@@ -309,7 +316,7 @@ func CheckCommitRules(ctx context.Context, client *typesafe.Client, rawMessage s
 		return nil, false, err
 	}
 	hasPrefix := answers["__has_prefix"].Noul >= 0.5
-	var out []RuleResult
+	out := skipped
 	for _, r := range applicable {
 		a := answers[r.ID]
 		out = append(out, RuleResult{Rule: r, Pass: a.Noul >= 0.5, Prob: a.Noul})
