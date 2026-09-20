@@ -76,12 +76,15 @@ func runCommit(args []string) error {
 		return fmt.Errorf("commit message 违反规则 %s: %s", fail.Rule.ID, fail.Rule.Fail)
 	}
 
-	// 提取前缀：正则先匹配（兼容全角），匹配不到但模型判有前缀 → 中断要求规范格式
-	if m := prefixRe.FindStringSubmatch(subject); m != nil {
-		userPrefix = normalizePrefix(m[1])
-		subject = strings.TrimSpace(subject[len(m[0]):])
-	} else if modelHasPrefix {
-		return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格）", msgs[0])
+	// 前缀处理：先信模型判定有无前缀；有才用正则提取，正则提不出（格式脏）→ 中断。
+	// 这样 "delete 三档判定：xxx" 这类 subject 开头的普通词不会被正则误吃成前缀。
+	if modelHasPrefix {
+		if m := prefixRe.FindStringSubmatch(subject); m != nil {
+			userPrefix = normalizePrefix(m[1])
+			subject = strings.TrimSpace(subject[len(m[0]):])
+		} else {
+			return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格）", msgs[0])
+		}
 	}
 
 	// 2) rules：查 staged diff（要提交的内容）的代码规则

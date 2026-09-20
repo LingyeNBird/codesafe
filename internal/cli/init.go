@@ -69,17 +69,61 @@ files, then fill in codesafe.yaml for it. Write:
                   pass (what satisfies it), fail (what violates it).
   commit_rules  — rules about the commit message itself (language, format, etc).
 
+If you are unsure of the exact field format, run "codesafe init --sample" to see
+a filled-in example.
+
 Keep rules concrete and checkable from a diff. Omit generic advice that applies
 to every project — only rules specific to this one.
 ─────────────────────────────────────────────────────────────
 `
 
+// sampleYAML 是填好值的示例配置——AI/用户看不懂注释模板时参考这个。
+const sampleYAML = `lang: zh
+allow_none: true
+prefix_conflict: override
+
+scopes:
+  cli:     "command-line entrypoint / flag parsing"
+  api:     "HTTP/RPC server layer"
+  db:      "database / migrations"
+  config:  "configuration loading"
+  ci:      "CI / release workflows"
+  docs:    "documentation"
+
+rules:
+  - id: vue-css-split
+    level: error
+    files: "*.vue"
+    text: .vue files must not contain <style> blocks; CSS goes to a sibling .css file
+    pass: all .vue styles live in external .css files
+    fail: a .vue file still contains an inline <style> block
+  - id: func-comment
+    level: warn
+    files: "*.go"
+    text: every function must carry a comment (one line for small, multi-line for large)
+    pass: all functions have comments
+    fail: a function lacks a comment
+
+commit_rules:
+  - id: subject-zh
+    on: subject
+    text: the subject must be in Chinese (technical terms may stay English)
+    pass: the subject is primarily Chinese
+    fail: the subject is not Chinese
+`
+
 // runInit 生成 codesafe.yaml 注释模板到当前目录（已存在则不覆盖），并打印 AI 提示词。
+// --sample 时只打印填好值的示例 yaml 到 stdout（不写文件）。
 func runInit(args []string) error {
 	fs := flag.NewFlagSet("codesafe init", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "directory to write codesafe.yaml")
+	sample := fs.Bool("sample", false, "print a filled-in example codesafe.yaml instead of writing the template")
 	if err := fs.Parse(args); err != nil {
 		return err
+	}
+	if *sample {
+		fmt.Print(sampleYAML)
+		return nil
 	}
 	path := filepath.Join(*dir, "codesafe.yaml")
 	if _, err := os.Stat(path); err == nil {

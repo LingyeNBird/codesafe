@@ -153,7 +153,7 @@ func askRules(ctx context.Context, client *typesafe.Client, diff string, rules [
 	}
 	answers, _, err := client.Evaluate(ctx, diff, qs)
 	if err != nil {
-		if isTokenLimit(err) && len(rules) > 1 {
+		if IsTokenLimit(err) && len(rules) > 1 {
 			// 拆出 description 最长的单独问（最小上下文：规则说明+匹配文件段）
 			i := longestRule(rules)
 			head := rules[i]
@@ -236,8 +236,8 @@ func narrowDiff(diff string, r config.Rule) string {
 	return strings.Join(segs, "\n")
 }
 
-// isTokenLimit 判断是否为上下文超限错误（400 max_tokens_exceeded）。
-func isTokenLimit(err error) bool {
+// IsTokenLimit 判断是否为上下文超限错误（400 max_tokens_exceeded）。
+func IsTokenLimit(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "max_tokens") ||
 		strings.Contains(err.Error(), "tokens_exceeded") ||
 		strings.Contains(err.Error(), "context"))

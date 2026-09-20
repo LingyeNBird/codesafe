@@ -32,6 +32,8 @@ func Run(args []string) error {
 			return runCommit(args[1:])
 		case "init":
 			return runInit(args[1:])
+		case "delete":
+			return runDelete(args[1:])
 		}
 	}
 	return runClassify(args)
