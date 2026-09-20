@@ -19,7 +19,14 @@ fill-circle gauge for each dimension, sorted by overall risk.
 
 ## Install
 
-Download a binary from [Releases](../../releases) for your platform, or build
+Linux / macOS one-liner (installs to `~/.local/bin`, adds PATH + `cs` alias to
+your shell rc):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.sh | bash
+```
+
+Or download a binary from [Releases](../../releases) for your platform, or build
 from source with Go 1.27+:
 
 ```sh

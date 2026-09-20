@@ -76,9 +76,9 @@ jobs:
 
           [完整变更记录](https://github.com/${REPO}/compare/${RANGE})
           EOF
-          gh release create "v${V}" \
-            --title "v${V}" \
-            --notes-file notes.md \
+          gh release create "v${V}" --title "v${V}" --notes-file notes.md
+          # gh release create 不支持 "路径#别名"，需用 upload 指定资产名
+          gh release upload "v${V}" --clobber \
             "out/windows-amd64/codesafe.exe#codesafe-windows-amd64.exe" \
             "out/linux-amd64/codesafe#codesafe-linux-amd64" \
             "out/darwin-arm64/codesafe#codesafe-darwin-arm64" \

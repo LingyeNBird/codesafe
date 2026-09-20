@@ -13,7 +13,13 @@
 
 ## 安装
 
-从 [Releases](../../releases) 下载对应平台的二进制文件，或用 Go 1.27+ 自行编译：
+Linux / macOS 一键安装（装入 `~/.local/bin`，并往 shell 配置写 PATH 与 `cs` 别名）：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.sh | bash
+```
+
+或从 [Releases](../../releases) 下载对应平台二进制，或用 Go 1.27+ 自行编译：
 
 ```sh
 go build -o codesafe ./cmd/codesafe
