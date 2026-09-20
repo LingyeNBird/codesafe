@@ -33,7 +33,10 @@ refuses, stop and report, never work around it.
    the correct type(scope) prefix, and runs git commit itself. Do not hand-write
    the type(scope) prefix — codesafe generates it (set prefix_conflict in
    codesafe.yaml to keep_user if you want your own prefix honored). If codesafe
-   aborts, fix the reported rule violation and retry.
+   aborts, fix the reported rule violation and retry. Never add a commit_rule
+   that checks the type(scope) prefix — codesafe generates it, so it is always
+   correct; "on: prefix" is only for validating a user-supplied prefix when the
+   project sets prefix_conflict=keep_user.
 
 3. To check pending changes against project rules, run "codesafe diff". It
    lists which codesafe.yaml rules the diff violates. "--staged" checks staged

@@ -76,6 +76,12 @@ bugs, verify logic, check edge cases, or judge whether code is right. Keep rules
 to things visible on the diff's surface — formatting, structure, naming, file
 placement, presence/absence of a construct.
 
+Do NOT write commit_rules that check the type(scope) prefix or its format —
+codesafe generates that prefix itself, so it is always valid by construction.
+The "on: prefix" field exists only for projects with prefix_conflict=keep_user,
+where it checks a user-supplied prefix; it is not for validating the generated
+one.
+
 If you are unsure of the exact field format, run "codesafe init --sample" to see
 a filled-in example.
 
