@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不带 v 前缀，如 0.1.0）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+
+      - name: Tag and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v${{ inputs.version }}"
+          git push origin "v${{ inputs.version }}"
+
+      # 四个平台各自构建到独立目录，二进制名统一为 codesafe / codesafe.exe；
+      # 上传时用 "路径#资产名" 给资产起带平台的别名，文件本身不带版本号。
+      - name: Build all platforms
+        run: |
+          go build -ldflags="-s -w" -o out/windows-amd64/codesafe.exe ./cmd/codesafe
+          $env:GOOS="linux";  $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/linux-amd64/codesafe  ./cmd/codesafe
+          $env:GOOS="darwin"; $env:GOARCH="arm64"; go build -ldflags="-s -w" -o out/darwin-arm64/codesafe ./cmd/codesafe
+          $env:GOOS="darwin"; $env:GOARCH="amd64"; go build -ldflags="-s -w" -o out/darwin-amd64/codesafe ./cmd/codesafe
+          Remove-Item Env:GOOS, Env:GOARCH
+
+      - name: Compute changelog range
+        id: range
+        shell: bash
+        run: |
+          PREV=$(git tag --sort=-creatordate | grep -v "^v${{ inputs.version }}$" | head -1 || true)
+          if [ -n "$PREV" ]; then
+            echo "range=$PREV...v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            FIRST=$(git rev-list --max-parents=0 HEAD | head -1)
+            echo "range=$FIRST...v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          REPO="${{ github.repository }}"
+          RANGE="${{ steps.range.outputs.range }}"
+          V="${{ inputs.version }}"
+          cat > notes.md <<EOF
+          ## 下载
+
+          | 平台 | 文件 |
+          |---|---|
+          | Windows (x64) | \`codesafe-windows-amd64.exe\` |
+          | Linux (x64) | \`codesafe-linux-amd64\` |
+          | macOS (Apple Silicon) | \`codesafe-darwin-arm64\` |
+          | macOS (Intel) | \`codesafe-darwin-amd64\` |
+
+          下载后重命名为 \`codesafe\`（Windows 为 \`codesafe.exe\`）并放入 PATH 即可使用。
+
+          ## 变更
+
+          [完整变更记录](https://github.com/${REPO}/compare/${RANGE})
+          EOF
+          gh release create "v${V}" \
+            --title "v${V}" \
+            --notes-file notes.md \
+            "out/windows-amd64/codesafe.exe#codesafe-windows-amd64.exe" \
+            "out/linux-amd64/codesafe#codesafe-linux-amd64" \
+            "out/darwin-arm64/codesafe#codesafe-darwin-arm64" \
+            "out/darwin-amd64/codesafe#codesafe-darwin-amd64"
