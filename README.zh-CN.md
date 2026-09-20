@@ -1,65 +1,86 @@
 # codesafe
 
-基于 [TypeSafe](https://typesafe.ai) System One API 的逐文件安全/缺陷快速筛查工具。
+用 [TypeSafe System One API](https://docs.typesafe.ai) 为你的暂存区或工作区 diff 建议一个 **conventional-commit `type(scope)`**。它读取你的改动并选出 commit 类型和 scope，让 AI 和脚本不用手分类就能拿到一致的 `type(scope)` 建议。
 
-指向一个文件夹，它会对每个文本文件跑五个判断维度——缺陷、安全、数据访问、
-依赖用法、内部逻辑——然后按总体风险从高到低逐行输出概率和 Nerd Font 圆环仪表。
-
-- 任意目录都能用：git 仓库里走 `git ls-files`，否则遍历整个目录树
-- 凭据文件（`.env`、`*.pem`、`*.key` 等）不会被发送
-- 二进制和超大文件自动跳过
-- 配置文件和文档只做格式合法性检查
-- 并发限速调用；API key 首次运行时输入一次并保存到用户配置目录
+[English](README.md)
 
 ## 安装
-
-Linux / macOS 一键安装（装入 `~/.local/bin`，并往 shell 配置写 PATH 与 `cs` 别名）：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.sh | bash
 ```
 
-或从 [Releases](../../releases) 下载对应平台二进制，或用 Go 1.27+ 自行编译：
+或从 [Releases](https://github.com/LingyeNBird/codesafe/releases) 下载：
 
-```sh
-go build -o codesafe ./cmd/codesafe
-```
+| 平台 | 文件 |
+|---|---|
+| Windows (x64) | `codesafe-windows-amd64.exe` |
+| Linux (x64) | `codesafe-linux-amd64` |
+| macOS (Apple Silicon) | `codesafe-darwin-arm64` |
+| macOS (Intel) | `codesafe-darwin-amd64` |
 
 ## 使用
 
 ```sh
 # 首次运行会提示输入 TypeSafe API key（console.typesafe.ai 获取）并保存
+# 分析暂存区 diff（无暂存时退到工作区 diff）
 ./codesafe
 
-# 扫描其他目录
-./codesafe --dir /path/to/project
+# 分析指定 commit
+./codesafe --source 5b5e054
 
-# 只列出将被扫描的文件，不调用 API
-./codesafe --dry-run
+# 只分析工作区（未暂存）改动
+./codesafe --source worktree
 
-# 只扫某个子目录（仍遵守 git 跟踪）
-./codesafe --subdir src/
+# 输出语言
+./codesafe --config lang=zh       # 中文
+./codesafe --config lang=en       # 英文
 
-# 强制扫描指定文件，绕过 git 跟踪与凭据过滤
-./codesafe --files "main.go,internal/util.go"
+# 持久化配置
+./codesafe --config api_key=<key>
+./codesafe --config scopes=cli|server|web|docs   # 你的 scope 名
 
-# 更新设置
-./codesafe --config api_key=<new-key>
-./codesafe --config lang=zh       # 中文标签（默认 en）
-./codesafe --config glyph=emoji   # 终端无 Nerd Font 时改用 emoji 圆环
-./codesafe --config override=路径:config  # 强制某文件的扫描方式（code|config|doc）
-
-# 临时覆盖，仅本次生效、不落盘（多个用逗号分隔）
+# 临时覆盖，仅本次生效、不落盘
 ./codesafe --set api_key=<key>
-./codesafe --set lang=en,glyph=emoji
-
-# 调整并发/请求速率（默认 16 并发，20 req/s）
-./codesafe --concurrency 32 --rps 30
+./codesafe --set lang=en
 ```
 
-输出列：`缺陷` · `安全` · `数据` · `依赖` · `逻辑`；配置/文档文件只显示
-`格式` 一列。行按五个维度等权加总降序排列。
+输出为建议的 `type`、`scope`，各自带置信度与备选，以及合并的 `type(scope)` 建议。
+
+## 项目 scope
+
+内置一组通用 scope（`app`、`ui`、`api`、`cli`、`docs`……）。按项目覆盖以贴合你的仓库约定。
+
+**随仓库分发**（协作共享）——在仓库根建 `codesafe.yaml`：
+
+```yaml
+allow_none: false        # 可选：禁止 scope=none（强制每个 commit 带具体 scope）
+scopes:
+  - server
+  - web: 前端界面
+  - installer
+  - cli
+```
+
+`- 名字` 用名字本身作描述；`- 名字: 描述` 给模型额外提示。
+
+**用户级**（仅本机、不提交）：
+
+```sh
+./codesafe --config scopes=server|web|cli|installer
+./codesafe --config nonescope=false     # 禁止 none scope
+```
+
+优先级：`codesafe.yaml` > `--config scopes` > 内置集。
+
+### `none` scope
+
+scope 集默认提供 `none`（"跨模块改动、无单一区域"）——遇到不属于任何单一 scope 的全仓改动时选它，建议输出不带括号（如 `feat!:`）。若项目要求每个 commit 必须带具体 scope，用 `codesafe.yaml` 的 `allow_none: false` 或 `./codesafe --config nonescope=false` 关掉。
+
+## API key
+
+在 [console.typesafe.ai](https://console.typesafe.ai) 获取。首次运行提示并保存到用户配置目录（权限 `0600`）。
 
 ## License
 
-AGPL-3.0-or-later — 见 COPYING。
+[AGPL-3.0-or-later](COPYING)

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * See COPYING in the project root for the full license.
  */
-// cli 包解析命令行参数、处理首次运行的 API key 输入、--config key=value 设置以及 --dry-run 模拟。
+// cli 包解析命令行参数、读取 diff、调用 TypeSafe 做 commit 分类并输出建议。
 package cli
 
 import (
@@ -13,9 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"codesafe/internal/config"
 	"codesafe/internal/render"
@@ -27,16 +25,12 @@ import (
 func Run(args []string) error {
 	fs := flag.NewFlagSet("codesafe", flag.ContinueOnError)
 	var (
-		dir     = fs.String("dir", ".", "directory to scan (default: current)")
-		subdir  = fs.String("subdir", "", "only scan this subdirectory within --dir")
-		files   = fs.String("files", "", "comma-separated file list to force-scan (bypasses git/credential filters)")
-		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh | glyph=nerd|emoji | override=<path>:<code|config|doc>")
+		dir     = fs.String("dir", ".", "git repo directory (default: current)")
+		setConf = fs.String("config", "", "set a config value and exit: api_key=<key> | lang=en|zh | scopes=a|b|c")
 		tmpSet  = fs.String("set", "", "temporary config for this run only (same keys as --config, not saved)")
-		dryRun  = fs.Bool("dry-run", false, "list files that would be scanned without calling the API")
 		model   = fs.String("model", "jev-latest", "TypeSafe model ID or alias")
-		width   = fs.Int("width", 40, "path column display width")
-		concur  = fs.Int("concurrency", 16, "concurrent request count")
-		rps     = fs.Float64("rps", 20, "max requests per second")
+		source  = fs.String("source", "auto", "diff source: staged | worktree | <commit-sha> | auto (staged, else worktree)")
+		detail  = fs.Bool("detail", false, "show percentage detail + token/cost stats (default prints just type(scope)!)")
 	)
 	fs.Usage = usage(fs)
 	if err := fs.Parse(args); err != nil {
@@ -52,18 +46,16 @@ func Run(args []string) error {
 		return nil
 	}
 
+	// 仓库根
 	root, err := scan.RepoRoot(*dir)
 	if err != nil {
 		return err
 	}
 	if root == "" {
-		root, err = filepath.Abs(*dir)
-		if err != nil {
-			return fmt.Errorf("cannot resolve directory: %w", err)
-		}
+		return fmt.Errorf("%s is not inside a git repository", *dir)
 	}
 
-	// 加载已保存配置（dry-run 也要 lang/glyph/overrides）
+	// 加载配置 + --set 临时覆盖
 	var cfg config.Config
 	if c, err := config.Load(); err == nil || errors.Is(err, config.ErrNoAPIKey) {
 		cfg = c
@@ -71,11 +63,6 @@ func Run(args []string) error {
 	if cfg.Lang == "" {
 		cfg.Lang = "en"
 	}
-	if cfg.Glyph == "" {
-		cfg.Glyph = "nerd"
-	}
-
-	// --set 临时覆盖（不落盘），可多次或逗号分隔多个 key=value
 	if *tmpSet != "" {
 		for _, kv := range strings.Split(*tmpSet, ",") {
 			var err error
@@ -85,54 +72,107 @@ func Run(args []string) error {
 			}
 		}
 	}
-
-	if *dryRun {
-		cfg.APIKey = "dry-run"
-	} else if cfg.APIKey == "" {
+	if cfg.APIKey == "" {
 		key, perr := promptKey()
 		if perr != nil {
 			return perr
 		}
-		if err := config.Save(config.Config{APIKey: key, Lang: cfg.Lang, Glyph: cfg.Glyph}); err != nil {
+		if err := config.Save(config.Config{APIKey: key, Lang: cfg.Lang, Scopes: cfg.Scopes}); err != nil {
 			return err
 		}
 		cfg.APIKey = key
 		fmt.Println("API key saved to", mustConfigPath())
 	}
 
-	var forceFiles []string
-	if *files != "" {
-		for _, f := range strings.Split(*files, ",") {
-			if f = strings.TrimSpace(f); f != "" {
-				forceFiles = append(forceFiles, f)
-			}
-		}
-	}
-
 	client := typesafe.NewClient(cfg.APIKey, *model)
-	s := scan.NewScanner(client, scan.Options{
-		Concurrency: *concur,
-		RPS:         *rps,
-		DryRun:      *dryRun,
-		Overrides:   cfg.Overrides,
-		Force:       len(forceFiles) > 0,
-	})
 
-	start := time.Now()
-	results, err := s.Run(context.Background(), root, *subdir, forceFiles)
+	// scope 来源优先级：项目 codesafe.yaml > 用户 --config > 筛选缓存/重筛 > 内置默认
+	pc, _ := config.LoadProject(root)
+	scopes := resolveScopes(context.Background(), client, pc, &cfg, root)
+	allowNone := resolveAllowNone(pc, cfg)
+
+	// 取 diff
+	diff, err := getDiff(root, *source)
 	if err != nil {
 		return err
 	}
-	totalTime := time.Since(start)
-	if *dryRun {
-		fmt.Printf(render.T(cfg.Lang, "dryrun_header")+"\n", countScannable(results))
+	if strings.TrimSpace(diff) == "" {
+		return fmt.Errorf("no diff found (source=%s): stage changes or pass a commit", *source)
 	}
-	fmt.Print(render.Table(results, *width, cfg.Lang, cfg.Glyph))
-	if !*dryRun {
-		fmt.Print(render.Legend(cfg.Lang))
-		fmt.Print(render.Summary(scan.Summarize(results, totalTime), cfg.Lang))
+
+	res, err := scan.Classify(context.Background(), client, diff, scopes, allowNone)
+	if err != nil {
+		return err
 	}
+	fmt.Print(render.Result(res, cfg.Lang, *detail))
 	return nil
+}
+
+// resolveScopes 合成 scope 集：项目 codesafe.yaml > 用户配置 > 筛选(缓存或重筛) > 内置。
+// 筛选写回 cfg.Screened 并持久化。yaml/--config 优先时不筛选。
+func resolveScopes(ctx context.Context, client *typesafe.Client, pc config.ProjectConfig, cfg *config.Config, root string) map[string]string {
+	if len(pc.Scopes) > 0 {
+		return pc.Scopes
+	}
+	if len(cfg.Scopes) > 0 {
+		return scan.ScopesFromNames(cfg.Scopes)
+	}
+	hash := scan.DirFingerprint(root)
+	if cfg.Screened != nil {
+		if e, ok := cfg.Screened[root]; ok && e.DirHash == hash {
+			return scan.ScopesFromNames(e.Scopes)
+		}
+	}
+	screened, err := scan.ScreenScopes(ctx, client, root, 0.5)
+	if err != nil {
+		return nil // 筛选失败退回内置全集
+	}
+	if cfg.Screened == nil {
+		cfg.Screened = map[string]config.ScreenedEntry{}
+	}
+	cfg.Screened[root] = config.ScreenedEntry{Scopes: sortedKeys(screened), DirHash: hash}
+	config.Save(*cfg)
+	return screened
+}
+
+// sortedKeys 返回 map 键的排序切片。
+func sortedKeys(m map[string]string) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	for i := 1; i < len(out); i++ {
+		for j := i; j > 0 && out[j] < out[j-1]; j-- {
+			out[j], out[j-1] = out[j-1], out[j]
+		}
+	}
+	return out
+}
+
+// resolveAllowNone 合成是否允许 scope=none：项目 yaml allow_none > --config nonescope > 默认 true。
+func resolveAllowNone(pc config.ProjectConfig, cfg config.Config) bool {
+	if pc.AllowNone != nil {
+		return *pc.AllowNone
+	}
+	return config.AllowNoneOf(cfg)
+}
+
+// getDiff 按 source 取 diff：staged → worktree → commit。
+func getDiff(root, source string) (string, error) {
+	switch source {
+	case "staged":
+		return scan.StagedDiff(root)
+	case "worktree":
+		return scan.WorktreeDiff(root)
+	case "auto":
+		if d, err := scan.StagedDiff(root); err == nil && strings.TrimSpace(d) != "" {
+			return d, nil
+		}
+		return scan.WorktreeDiff(root)
+	default:
+		// 当作 commit sha / rev
+		return scan.CommitDiff(root, source)
+	}
 }
 
 // promptKey 首次运行时从 stdin 读取 API key。
@@ -158,39 +198,44 @@ func mustConfigPath() string {
 	return p
 }
 
-// countScannable 统计 dry-run 中未跳过的文件数。
-func countScannable(rs []scan.FileResult) int {
-	n := 0
-	for _, r := range rs {
-		if !r.Skipped {
-			n++
-		}
-	}
-	return n
-}
-
 // usage 打印帮助；fs 为已注册全部 flag 的集合。
 func usage(fs *flag.FlagSet) func() {
 	return func() {
-		fmt.Fprintf(os.Stderr, `codesafe — fast per-file safety/bug triage via the TypeSafe System One API
+		fmt.Fprintf(os.Stderr, `codesafe — suggest a conventional-commit type(scope) for your diff via the TypeSafe API
 
 Usage:
-  codesafe [flags]
+  codesafe [flags]            classify the current staged (or worktree) diff
+  codesafe --source <sha>     classify a specific commit
 
 Flags:
 `)
 		fs.PrintDefaults()
 		fmt.Fprintf(os.Stderr, `
-On first run you will be prompted for your API key, saved to the user config dir.
+Diff source (--source):
+  staged     git diff --cached        (what you're about to commit)
+  worktree   git diff HEAD            (all uncommitted changes)
+  <sha>      a specific commit
+  auto       staged if present, else worktree   (default)
+
 Persistent config (saved):
   codesafe --config api_key=<key>
-  codesafe --config lang=zh                     (output in Chinese; default en)
-  codesafe --config glyph=emoji                 (emoji gauge instead of Nerd Font)
-  codesafe --config override=<path>:<kind>      (force a file's scan mode: code|config|doc)
+  codesafe --config lang=zh                 (output in Chinese; default en)
+  codesafe --config scopes=a|b|c            (your scope names, | separated)
 
-Temporary overrides for one run only (comma-separate multiple, not saved):
-  codesafe --set lang=en,glyph=emoji
-  codesafe --set api_key=<key>                  (use a key without saving it)
+Temporary overrides for one run only (not saved):
+  codesafe --set api_key=<key>
+  codesafe --set lang=en
+
+Project scopes (committed with the repo):
+  create codesafe.yaml in the repo root:
+    allow_none: false        # forbid scope=none (require a concrete scope)
+    scopes:
+      - server
+      - web: frontend UI
+      - installer
+  Project scopes override --config scopes, which override the built-in set.
+  none (cross-cutting change, no parens) is offered unless disabled via
+  allow_none: false or --config nonescope=false.
 `)
 	}
 }

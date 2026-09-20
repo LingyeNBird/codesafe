@@ -1,5 +1,5 @@
 codesafe.exe
 codesafe
 *.exe
-tmp_render/
-tmp_gen/
+*.exe~
+tmp_*/

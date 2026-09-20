@@ -40,7 +40,7 @@ func NewClient(apiKey, model string) *Client {
 	}
 }
 
-// Question 是单个 noul 问题。
+// Question 是单个问题（noul 或 choice）。
 type Question struct {
 	Type         string            `json:"type"`
 	Instructions string            `json:"instructions"`
@@ -50,6 +50,11 @@ type Question struct {
 // Noul 构造一个 yes/no 问题，criteria 描述 true/false 各自的含义。
 func Noul(instructions string, criteria map[string]string) Question {
 	return Question{Type: "noul", Instructions: instructions, Criteria: criteria}
+}
+
+// Choice 构造一个选项问题，criteria 为 选项名 -> 说明。
+func Choice(instructions string, criteria map[string]string) Question {
+	return Question{Type: "choice", Instructions: instructions, Criteria: criteria}
 }
 
 // request 是 POST /v1/systemone 的请求体。
@@ -84,8 +89,18 @@ type rateLimitError struct{ retryAfter time.Duration }
 
 func (e *rateLimitError) Error() string { return "rate limited" }
 
-// Evaluate 对同一 state 并行求值所有 questions，返回每个问题 id 对应的 noul 概率 (0..1) 及 token 用量。
-func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Question) (map[string]float64, Usage, error) {
+// Answer 是一个问题的原始答案（按类型字段填充）。
+type Answer struct {
+	// noul
+	Noul float64
+	// choice
+	Choice        string
+	Probabilities map[string]float64
+	Confidence    float64
+}
+
+// Evaluate 对同一 state 求值所有 questions，返回每个问题 id 的 Answer 及 token 用量。
+func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Question) (map[string]Answer, Usage, error) {
 	body := request{State: state, Model: c.model, Questions: questions}
 	payload, err := json.Marshal(body)
 	if err != nil {
@@ -123,11 +138,11 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 			if err := json.Unmarshal(raw, &out); err != nil {
 				return nil, Usage{}, fmt.Errorf("解析响应失败: %w", err)
 			}
-			probs, err := decodeNouls(out.Answers)
+			ans, err := decodeAnswers(out.Answers)
 			if err != nil {
 				return nil, Usage{}, err
 			}
-			return probs, out.Usage, nil
+			return ans, out.Usage, nil
 		}
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
 			lastErr = retryable(resp, raw)
@@ -138,17 +153,24 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 	return nil, Usage{}, fmt.Errorf("请求失败（重试 %d 次后）: %w", c.retries, lastErr)
 }
 
-// decodeNouls 把 answers map 里每个 noul 答案解出概率值。
-func decodeNouls(answers map[string]json.RawMessage) (map[string]float64, error) {
-	out := make(map[string]float64, len(answers))
+// decodeAnswers 把 answers map 里每个答案按字段解出（noul 概率、choice 选中项/概率/置信度）。
+func decodeAnswers(answers map[string]json.RawMessage) (map[string]Answer, error) {
+	out := make(map[string]Answer, len(answers))
 	for id, raw := range answers {
 		var a struct {
-			Noul float64 `json:"noul"`
+			Noul          *float64           `json:"noul"`
+			Choice        string             `json:"choice"`
+			Probabilities map[string]float64 `json:"probabilities"`
+			Confidence    float64            `json:"confidence"`
 		}
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return nil, fmt.Errorf("解析问题 %q 的答案失败: %w", id, err)
 		}
-		out[id] = a.Noul
+		an := Answer{Choice: a.Choice, Probabilities: a.Probabilities, Confidence: a.Confidence}
+		if a.Noul != nil {
+			an.Noul = *a.Noul
+		}
+		out[id] = an
 	}
 	return out, nil
 }

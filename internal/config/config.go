@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * See COPYING in the project root for the full license.
  */
-// config 包负责持久化配置（API key、输出语言）：保存在用户配置目录下的 codesafe/config.json。
+// config 包管理 codesafe 的用户配置：API key、输出语言、commit scope 选项。
 package config
 
 import (
@@ -15,15 +15,22 @@ import (
 	"strings"
 )
 
-// ErrNoAPIKey 表示尚未配置 API key，需要首次运行时输入或用 --config 设置。
 var ErrNoAPIKey = errors.New("api key not configured")
 
 // Config 是持久化到磁盘的配置。
 type Config struct {
-	APIKey    string            `json:"api_key"`
-	Lang      string            `json:"lang"`                // "en"（默认）或 "zh"
-	Glyph     string            `json:"glyph"`               // "nerd"（默认）或 "emoji"
-	Overrides map[string]string `json:"overrides,omitempty"` // 绝对路径 -> "code"|"config"|"doc"
+	APIKey    string   `json:"api_key"`
+	Lang      string   `json:"lang"`                 // "en"（默认）或 "zh"
+	Scopes    []string `json:"scopes,omitempty"`     // 用户级自定义 scope 名列表（--config 持久化）
+	AllowNone *bool    `json:"allow_none,omitempty"` // 是否允许 scope=none；nil/false→不允许
+	// Screened 缓存按项目根路径筛出的形态域 scope 名；目录结构变化时重筛。
+	Screened map[string]ScreenedEntry `json:"screened,omitempty"`
+}
+
+// ScreenedEntry 是一个项目的筛选缓存：scope 名列表 + 生成时的目录指纹。
+type ScreenedEntry struct {
+	Scopes  []string `json:"scopes"`   // 筛出的形态域 scope 名
+	DirHash string   `json:"dir_hash"` // 目录指纹，变了就重筛
 }
 
 // Path 返回配置文件路径：<os.UserConfigDir>/codesafe/config.json。
@@ -55,11 +62,8 @@ func Load() (Config, error) {
 	if cfg.Lang == "" {
 		cfg.Lang = "en"
 	}
-	if cfg.Glyph == "" {
-		cfg.Glyph = "nerd"
-	}
 	if cfg.APIKey == "" {
-		return cfg, ErrNoAPIKey // 返回已读的 Lang/Glyph，调用方按需取用
+		return cfg, ErrNoAPIKey // 返回已读的 Lang，调用方按需取用
 	}
 	return cfg, nil
 }
@@ -83,7 +87,7 @@ func Save(cfg Config) error {
 	return nil
 }
 
-// Set 解析 "key=value" 并写入配置；支持 api_key、lang、glyph、override。返回更新后的配置。
+// Set 解析 "key=value" 并写入配置；支持 api_key、lang、scopes。返回更新后的配置。
 func Set(kv string) (Config, error) {
 	cfg, _ := Load() // 读旧值以便局部更新；文件不存在也无妨
 	cfg, err := Apply(cfg, kv)
@@ -113,44 +117,144 @@ func Apply(cfg Config, kv string) (Config, error) {
 			return Config{}, fmt.Errorf("lang must be en or zh, got %q", value)
 		}
 		cfg.Lang = value
-	case "glyph":
-		if value != "nerd" && value != "emoji" {
-			return Config{}, fmt.Errorf("glyph must be nerd or emoji, got %q", value)
+	case "scopes":
+		// | 分隔的 scope 名列表，覆盖内置集；空值 = 用内置
+		if value == "" {
+			cfg.Scopes = nil
+			break
 		}
-		cfg.Glyph = value
-	case "override":
-		abs, kind, err := parseOverride(value)
+		var scopes []string
+		for _, s := range strings.Split(value, "|") {
+			if s = strings.TrimSpace(s); s != "" {
+				scopes = append(scopes, s)
+			}
+		}
+		cfg.Scopes = scopes
+	case "nonescope":
+		// 是否允许 scope=none（跨模块改动无单一 scope）；默认允许
+		b, err := parseBool(value)
 		if err != nil {
-			return Config{}, err
+			return Config{}, fmt.Errorf("nonescope must be true or false, got %q", value)
 		}
-		if cfg.Overrides == nil {
-			cfg.Overrides = map[string]string{}
-		}
-		cfg.Overrides[abs] = kind
+		cfg.AllowNone = &b
 	default:
-		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, glyph, override)", key)
+		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, scopes, nonescope)", key)
 	}
 	if cfg.Lang == "" {
 		cfg.Lang = "en"
 	}
-	if cfg.Glyph == "" {
-		cfg.Glyph = "nerd"
-	}
 	return cfg, nil
 }
 
-// parseOverride 解析 "路径:kind"（kind ∈ code|config|doc），路径转绝对路径。
-func parseOverride(v string) (absPath, kind string, err error) {
-	path, kind, ok := strings.Cut(v, ":")
-	if !ok || path == "" {
-		return "", "", fmt.Errorf("expected --config override=<path>:<code|config|doc>, got %q", v)
+// parseBool 解析 "true"/"false"（也接受 yes/no/1/0）。
+func parseBool(v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "yes", "1", "on":
+		return true, nil
+	case "false", "no", "0", "off":
+		return false, nil
 	}
-	if kind != "code" && kind != "config" && kind != "doc" {
-		return "", "", fmt.Errorf("override kind must be code, config or doc, got %q", kind)
+	return false, fmt.Errorf("not a bool: %q", v)
+}
+
+// AllowNoneOf 返回是否允许 scope=none：默认 true，显式 false 关闭。
+func AllowNoneOf(cfg Config) bool {
+	return cfg.AllowNone == nil || *cfg.AllowNone
+}
+
+// ProjectConfig 是项目根 codesafe.yaml 的内容：项目自定义 scope 与 allow_none 开关。
+type ProjectConfig struct {
+	Scopes    map[string]string `yaml:"scopes"`
+	AllowNone *bool             `yaml:"allow_none"` // 显式 false 时禁止 scope=none
+}
+
+// LoadProject 读取 dir 下的 codesafe.yaml / codesafe.yml；不存在返回空配置。
+// 手写极简解析：只认顶层 "scopes:" 后跟 "- name" 或 "- name: desc" 行。
+func LoadProject(dir string) (ProjectConfig, error) {
+	var pc ProjectConfig
+	var path string
+	for _, name := range []string{"codesafe.yaml", "codesafe.yml"} {
+		p := filepath.Join(dir, name)
+		if _, err := os.Stat(p); err == nil {
+			path = p
+			break
+		}
 	}
-	abs, err := filepath.Abs(path)
+	if path == "" {
+		return pc, nil
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", "", fmt.Errorf("cannot resolve path %q: %w", path, err)
+		return pc, fmt.Errorf("cannot read %s: %w", path, err)
 	}
-	return abs, kind, nil
+	pc.Scopes = parseScopes(string(data))
+	pc.AllowNone = parseAllowNone(string(data))
+	return pc, nil
+}
+
+// parseAllowNone 解析顶层 "allow_none: false"；缺省返回 nil（默认允许）。
+func parseAllowNone(y string) *bool {
+	for _, raw := range strings.Split(y, "\n") {
+		trim := strings.TrimSpace(raw)
+		if strings.HasPrefix(trim, "allow_none:") {
+			v := strings.TrimSpace(strings.TrimPrefix(trim, "allow_none:"))
+			if b, err := parseBool(strings.Trim(v, `"'`)); err == nil {
+				return &b
+			}
+		}
+	}
+	return nil
+}
+
+// parseScopes 解析 codesafe.yaml 的 scopes 段。支持两种写法：
+//
+//	scopes:
+//	  - server
+//	  - web: frontend UI
+//
+// 或行内 map：scopes: {server: "", web: frontend UI}
+func parseScopes(y string) map[string]string {
+	out := map[string]string{}
+	lines := strings.Split(y, "\n")
+	inScopes := false
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, " \t")
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		if !inScopes {
+			if strings.HasPrefix(trim, "scopes:") {
+				rest := strings.TrimSpace(strings.TrimPrefix(trim, "scopes:"))
+				if rest != "" { // 行内 map
+					rest = strings.Trim(rest, "{}")
+					for _, kv := range strings.Split(rest, ",") {
+						k, v, _ := strings.Cut(kv, ":")
+						k = strings.TrimSpace(strings.Trim(k, `"'`))
+						v = strings.TrimSpace(strings.Trim(v, `"'`))
+						if k != "" {
+							out[k] = v
+						}
+					}
+					return out
+				}
+				inScopes = true
+			}
+			continue
+		}
+		// 在 scopes 段内：只收 "- name[: desc]" 行；遇到新的顶层键退出
+		if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "\t") {
+			break
+		}
+		if strings.HasPrefix(trim, "-") {
+			entry := strings.TrimSpace(strings.TrimPrefix(trim, "-"))
+			name, desc, _ := strings.Cut(entry, ":")
+			name = strings.TrimSpace(strings.Trim(name, `"'`))
+			desc = strings.TrimSpace(strings.Trim(desc, `"'`))
+			if name != "" {
+				out[name] = desc
+			}
+		}
+	}
+	return out
 }

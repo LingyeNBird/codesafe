@@ -3,83 +3,98 @@
  * SPDX-License-Identifier: AGPL-3.0-or-later
  * See COPYING in the project root for the full license.
  */
-// scan 包定义逐文件安全/缺陷判断的五个 noul 问题、收集 git 跟踪文件、并发调用 TypeSafe 并聚合结果。
+// scan 包定义 commit 分类所需的 type/scope choice 问题。
 package scan
 
 import "codesafe/internal/typesafe"
 
-// Dim 描述一个判断维度：问题 id、显示标签和聚合权重。
-type Dim struct {
-	ID     string
-	Label  string
-	Weight float64
+// TypeCriteria 是 conventional-commit 类型选项 -> 说明。
+var TypeCriteria = map[string]string{
+	"feat":     "adds a new feature or capability",
+	"fix":      "fixes a bug or incorrect behavior",
+	"refactor": "restructures code without changing behavior",
+	"perf":     "improves performance without changing behavior",
+	"style":    "formatting/whitespace only, no logic change",
+	"test":     "adds or changes tests only",
+	"docs":     "documentation or comments only",
+	"build":    "build system, dependencies, or packaging",
+	"ci":       "CI/CD pipeline, workflows, automation",
+	"chore":    "maintenance, version bumps, routine tasks",
+	"revert":   "reverts a previous commit",
+	"security": "fixes a security vulnerability or hardens security",
 }
 
-// Dims 是扫描使用的维度表，顺序即输出列顺序。
-var Dims = []Dim{
-	{ID: "bug", Label: "缺陷", Weight: 1},
-	{ID: "security", Label: "安全", Weight: 1},
-	{ID: "data_ops", Label: "数据", Weight: 1},
-	{ID: "dependency", Label: "依赖", Weight: 1},
-	{ID: "logic", Label: "逻辑", Weight: 1},
+// FormScopes 是形态域 scope（跟项目结构组成有关，可被筛选）：一个项目可能有也可能没有这些层。
+var FormScopes = map[string]string{
+	"app":    "application code",
+	"ui":     "user interface / frontend",
+	"api":    "API / backend endpoints",
+	"db":     "database / data layer",
+	"cli":    "command-line interface",
+	"config": "configuration / settings",
+	"repo":   "repo-wide / cross-cutting",
 }
 
-// FormatDim 是配置/文档文件唯一要跑的维度。
-var FormatDim = Dim{ID: "format", Label: "格式", Weight: 1}
+// UniversalScopes 是横切/通用 scope（任何项目都可能有这类 commit，恒保留、不参与筛选）。
+var UniversalScopes = map[string]string{
+	"docs":    "documentation",
+	"test":    "tests",
+	"build":   "build / packaging",
+	"ci":      "CI / automation",
+	"deps":    "dependency updates",
+	"release": "release / versioning",
+}
 
-// FormatQuestion 判断文件格式是否合法、可被常规解析器读取。
-func FormatQuestion(kind FileKind) typesafe.Question {
-	subject := "configuration or data file"
-	if kind == KindDoc {
-		subject = "documentation file"
+// ScopeCriteria 是默认 scope 全集（形态域 + 通用域 + none）。
+var ScopeCriteria = func() map[string]string {
+	m := map[string]string{"none": "no single area — cross-cutting or repo-wide change"}
+	for k, v := range FormScopes {
+		m[k] = v
 	}
-	return typesafe.Noul(
-		"Is this "+subject+" malformed — would a standard parser or reader reject it, or is it structurally broken (unclosed delimiters, truncated content, invalid syntax for its declared format)?",
-		map[string]string{
-			"true":  "The file has a concrete format defect that a parser would reject or a reader would find broken.",
-			"false": "The file is well-formed for its format; stylistic or semantic issues do not count.",
-		},
-	)
+	for k, v := range UniversalScopes {
+		m[k] = v
+	}
+	return m
+}()
+
+// Questions 返回 commit 分类的问题。scopes 为空用内置集；
+// allowNone 为真时保证集里含 "none"（跨模块改动可无 scope）。
+func Questions(scopes map[string]string, allowNone bool) map[string]typesafe.Question {
+	if len(scopes) == 0 {
+		scopes = ScopeCriteria
+	}
+	if allowNone {
+		scopes = copyWithNone(scopes)
+	}
+	return map[string]typesafe.Question{
+		"type":  typesafe.Choice("This is a git commit (subject line + diff). Which conventional-commit type best describes the change?", TypeCriteria),
+		"scope": typesafe.Choice("Which project scope does this change mainly affect?", scopes),
+		"breaking": typesafe.Noul(
+			"Does this change break an EXTERNAL contract that downstream consumers actually depend on? Breaking means: removing/renaming a public or exported API, changing a function signature or return type others call, removing or renaming a CLI flag/subcommand, changing a config file format or removing a config key, changing a documented output format (stdout/stderr structure others parse), or changing observable behavior that callers rely on. NOT breaking: internal refactors invisible to callers, renaming private/unexported symbols, changing comments/formatting, additive changes (new flag, new field, new endpoint), bug fixes that restore intended behavior, or changes to code no external party calls. When in doubt about whether anyone depends on it, it is not breaking.",
+			map[string]string{
+				"true":  "The change removes, renames, or alters a public/CLI/config/output contract that external users or callers depend on, in a way that would break them.",
+				"false": "The change is internal, additive, a bug fix, or touches only code no external consumer depends on.",
+			}),
+	}
 }
 
-// Questions 返回五个维度的 noul 问题，instructions 用英文写以匹配模型的主训练语言，
-// criteria 把 true/false 边界写窄以避免字面化误读。
-func Questions() map[string]typesafe.Question {
-	q := map[string]typesafe.Question{}
-	q["bug"] = typesafe.Noul(
-		"Does this file contain code defects that would cause incorrect behavior or a crash at runtime?",
-		map[string]string{
-			"true":  "The file contains at least one concrete defect that would produce wrong output, corrupt state, or crash.",
-			"false": "The file's behavior matches what it is written to do; style issues and possible improvements are not bugs.",
-		},
-	)
-	q["security"] = typesafe.Noul(
-		"Does this file contain a security vulnerability such as injection, hardcoded credentials, insecure deserialization, missing authorization checks, or leaking sensitive data?",
-		map[string]string{
-			"true":  "There is a concrete security weakness that an attacker or misuse could exploit.",
-			"false": "No exploitable weakness; theoretical hardening suggestions do not count.",
-		},
-	)
-	q["data_ops"] = typesafe.Noul(
-		"Does this file contain a data-access defect such as building SQL by string concatenation with untrusted input, missing transactions where atomicity is required, or unparameterized queries?",
-		map[string]string{
-			"true":  "The file performs database or persistent-data operations with a concrete correctness or injection defect.",
-			"false": "The file has no data-access defect, or performs no data-access operations at all.",
-		},
-	)
-	q["dependency"] = typesafe.Noul(
-		"Assuming every imported module and package exists, is there a problem in how this file uses its imports — wrong usage versus the library's conventional API, importing without use, or calling symbols the library does not provide?",
-		map[string]string{
-			"true":  "An import is used in a way inconsistent with its conventional API, or a needed import is absent.",
-			"false": "Import usage is consistent with conventional APIs; do not judge whether the module exists.",
-		},
-	)
-	q["logic"] = typesafe.Noul(
-		"Within this single file, is there self-contradictory logic: conditions that are always true or always false, unreachable branches or dead code, contradictory assignments, or clear off-by-one boundary errors? Judge only what is visible inside this file.",
-		map[string]string{
-			"true":  "The file's internal logic contradicts itself in a way a reader can point to.",
-			"false": "The file is internally consistent; do not speculate about other files.",
-		},
-	)
-	return q
+// copyWithNone 复制 scope 集并保证含 "none"（跨模块/仓库级改动无单一 scope 时使用）。
+func copyWithNone(m map[string]string) map[string]string {
+	out := make(map[string]string, len(m)+1)
+	for k, v := range m {
+		out[k] = v
+	}
+	if _, ok := out["none"]; !ok {
+		out["none"] = "no single area — cross-cutting or repo-wide change"
+	}
+	return out
+}
+
+// ScopesFromNames 把 scope 名列表转成 名->描述 的 map；无描述时用名字本身。
+func ScopesFromNames(names []string) map[string]string {
+	out := map[string]string{}
+	for _, n := range names {
+		out[n] = n
+	}
+	return out
 }

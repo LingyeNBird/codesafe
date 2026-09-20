@@ -1,71 +1,86 @@
 # codesafe
 
-[中文](README.zh-CN.md)
+Suggest a **conventional-commit `type(scope)`** for your staged or worktree diff, using the [TypeSafe System One API](https://docs.typesafe.ai). It reads your diff and picks a commit type and scope — so AI agents and scripts get a consistent `type(scope)` suggestion without hand-classifying.
 
-Fast per-file safety and bug triage for a directory, powered by the
-[TypeSafe](https://typesafe.ai) System One API.
-
-Point it at a folder and it sends every text file through five judgment
-questions — defects, security, data-access, dependency usage, and internal
-logic — then prints one line per file with a probability and a Nerd Font
-fill-circle gauge for each dimension, sorted by overall risk.
-
-- Works on any directory; uses `git ls-files` inside a repository, walks the
-  tree otherwise
-- Credential files (`.env`, `*.pem`, `*.key`, …) are never sent
-- Binary and oversized files are skipped
-- Config and documentation files only get a format-validity check
-- Concurrent, rate-limited calls; API key stored once in your user config dir
+[中文文档](README.zh-CN.md)
 
 ## Install
-
-Linux / macOS one-liner (installs to `~/.local/bin`, adds PATH + `cs` alias to
-your shell rc):
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.sh | bash
 ```
 
-Or download a binary from [Releases](../../releases) for your platform, or build
-from source with Go 1.27+:
+Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/releases):
 
-```sh
-go build -o codesafe ./cmd/codesafe
-```
+| Platform | File |
+|---|---|
+| Windows (x64) | `codesafe-windows-amd64.exe` |
+| Linux (x64) | `codesafe-linux-amd64` |
+| macOS (Apple Silicon) | `codesafe-darwin-arm64` |
+| macOS (Intel) | `codesafe-darwin-amd64` |
 
-## Usage
+## Use
 
 ```sh
 # First run prompts for your TypeSafe API key (console.typesafe.ai) and saves it
+# Classify the staged diff (or worktree diff if nothing is staged)
 ./codesafe
 
-# Scan another directory
-./codesafe --dir /path/to/project
+# Classify a specific commit
+./codesafe --source 5b5e054
 
-# List what would be scanned without calling the API
-./codesafe --dry-run
+# Classify only the worktree (unstaged) changes
+./codesafe --source worktree
 
-# Only scan a subdirectory (still respects git tracking)
-./codesafe --subdir src/
+# Change output language
+./codesafe --config lang=zh       # Chinese
+./codesafe --config lang=en       # English
 
-# Force-scan specific files, bypassing git-tracking and credential filters
-./codesafe --files "main.go,internal/util.go"
+# Persistent config
+./codesafe --config api_key=<key>
+./codesafe --config scopes=cli|server|web|docs   # your scope names
 
-# Update stored settings
-./codesafe --config api_key=<new-key>
-./codesafe --config lang=zh      # Chinese labels (default en)
-./codesafe --config glyph=emoji  # emoji gauge if your terminal lacks Nerd Font
-./codesafe --config override=path/to/file:config  # force a file's scan mode (code|config|doc)
-
-# Temporary overrides for one run only (comma-separate, not saved)
+# Temporary overrides for one run only (not saved)
 ./codesafe --set api_key=<key>
-./codesafe --set lang=en,glyph=emoji
+./codesafe --set lang=en
 ```
 
-Output columns: `bug` · `security` · `data` · `deps` · `logic` (Chinese:
-缺陷/安全/数据/依赖/逻辑). Config/doc files show a single `format` column.
-Rows sort by the equal-weight sum of probabilities, highest first.
+The output is the suggested `type`, `scope`, each with a confidence score and alternatives, plus a combined `type(scope)` suggestion.
+
+## Project scopes
+
+The tool ships a built-in scope set (`app`, `ui`, `api`, `cli`, `docs`, …). Override it per project so suggestions match your repo's conventions.
+
+**Repo-committed** (shared with collaborators) — create `codesafe.yaml` in the repo root:
+
+```yaml
+allow_none: false        # optional: forbid scope=none (require a concrete scope)
+scopes:
+  - server
+  - web: frontend UI
+  - installer
+  - cli
+```
+
+A bare `- name` uses the name as its own description; `- name: desc` gives the model a hint.
+
+**User-level** (this machine only, not committed):
+
+```sh
+./codesafe --config scopes=server|web|cli|installer
+./codesafe --config nonescope=false     # forbid the none scope
+```
+
+Priority: `codesafe.yaml` > `--config scopes` > built-in set.
+
+### The `none` scope
+
+The scope set always offers `none` ("cross-cutting change, no single area") — pick it for repo-wide changes that fit no single scope; the suggestion then has no parens (e.g. `feat!:`). Disable it with `allow_none: false` in `codesafe.yaml`, or `./codesafe --config nonescope=false`, if your project requires every commit to carry a concrete scope.
+
+## API key
+
+Get one at [console.typesafe.ai](https://console.typesafe.ai). First run prompts and saves it to the user config dir (`0600`).
 
 ## License
 
-AGPL-3.0-or-later — see COPYING.
+[AGPL-3.0-or-later](COPYING)
