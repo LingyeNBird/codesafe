@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"codesafe/internal/cache"
 )
 
 const endpoint = "https://api.typesafe.ai/v1/systemone"
@@ -25,9 +27,13 @@ type Client struct {
 	model   string
 	http    *http.Client
 	retries int
+	// Cache 开关响应缓存（bbolt，按请求 payload 的 SHA-256）；默认开。
+	Cache bool
+	// Refresh 强制跳过缓存重判（--refresh）。
+	Refresh bool
 }
 
-// NewClient 返回使用给定 API key 的客户端，model 传空时使用 jev-latest。
+// NewClient 返回使用给定 API key 的客户端，model 传空时使用 jev-latest。默认开缓存。
 func NewClient(apiKey, model string) *Client {
 	if model == "" {
 		model = "jev-latest"
@@ -37,6 +43,7 @@ func NewClient(apiKey, model string) *Client {
 		model:   model,
 		http:    &http.Client{Timeout: 120 * time.Second},
 		retries: 4,
+		Cache:   true,
 	}
 }
 
@@ -106,7 +113,20 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 	if err != nil {
 		return nil, Usage{}, err
 	}
-
+	// 缓存键 = 真实发往上游的请求字节 SHA-256；命中且未过期则直接复用。
+	key := cache.Key(payload)
+	if c.Cache && !c.Refresh {
+		if e, ok := cache.Get(key); ok {
+			var out Response
+			if json.Unmarshal(e.Answers, &out.Answers) == nil {
+				if ans, err := decodeAnswers(out.Answers); err == nil {
+					var u Usage
+					json.Unmarshal(e.Usage, &u)
+					return ans, u, nil
+				}
+			}
+		}
+	}
 	var lastErr error
 	for attempt := 0; attempt <= c.retries; attempt++ {
 		if attempt > 0 {
@@ -120,7 +140,6 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 		}
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 		req.Header.Set("Content-Type", "application/json")
-
 		resp, err := c.http.Do(req)
 		if err != nil {
 			lastErr = err
@@ -141,6 +160,11 @@ func (c *Client) Evaluate(ctx context.Context, state any, questions map[string]Q
 			ans, err := decodeAnswers(out.Answers)
 			if err != nil {
 				return nil, Usage{}, err
+			}
+			if c.Cache {
+				rawAns, _ := json.Marshal(out.Answers)
+				rawUse, _ := json.Marshal(out.Usage)
+				cache.Set(key, cache.Entry{Answers: rawAns, Usage: rawUse})
 			}
 			return ans, out.Usage, nil
 		}

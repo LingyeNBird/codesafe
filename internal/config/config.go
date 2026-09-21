@@ -25,10 +25,16 @@ type Config struct {
 	Lang      string   `json:"lang"`                 // "en"（默认）或 "zh"
 	Scopes    []string `json:"scopes,omitempty"`     // 用户级自定义 scope 名列表（--config 持久化）
 	AllowNone *bool    `json:"allow_none,omitempty"` // 是否允许 scope=none；nil/false→不允许
+	Cache     *bool    `json:"cache,omitempty"`      // 响应缓存；nil/true→开（默认），false→关
 	// Screened 缓存按项目根路径筛出的形态域 scope 名；目录结构变化时重筛。
 	Screened map[string]ScreenedEntry `json:"screened,omitempty"`
 	// Todo 按项目根路径存当前任务描述（codesafe todo 设置，commit 成功后清空）。
 	Todo map[string]string `json:"todo,omitempty"`
+}
+
+// CacheOn 返回响应缓存是否开启：默认开（nil→true），显式 false 关。
+func CacheOn(cfg Config) bool {
+	return cfg.Cache == nil || *cfg.Cache
 }
 
 // ScreenedEntry 是一个项目的筛选缓存：scope 名列表 + 生成时的目录指纹。
@@ -141,8 +147,15 @@ func Apply(cfg Config, kv string) (Config, error) {
 			return Config{}, fmt.Errorf("nonescope must be true or false, got %q", value)
 		}
 		cfg.AllowNone = &b
+	case "cache":
+		// 响应缓存开关；默认开
+		b, err := parseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("cache must be true or false, got %q", value)
+		}
+		cfg.Cache = &b
 	default:
-		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, scopes, nonescope)", key)
+		return Config{}, fmt.Errorf("unknown config key %q (supported: api_key, lang, scopes, nonescope, cache)", key)
 	}
 	if cfg.Lang == "" {
 		cfg.Lang = "en"

@@ -53,6 +53,7 @@ func runClassify(args []string) error {
 		model   = fs.String("model", "jev-latest", "TypeSafe model ID or alias")
 		source  = fs.String("source", "auto", "diff source: staged | worktree | <commit-sha> | auto (staged, else worktree)")
 		detail  = fs.Bool("detail", false, "show percentage detail + token/cost stats (default prints just type(scope)!)")
+		refresh = fs.Bool("refresh", false, "bypass the response cache and re-judge")
 	)
 	fs.Usage = usage(fs)
 	if err := fs.Parse(args); err != nil {
@@ -105,8 +106,7 @@ func runClassify(args []string) error {
 		cfg.APIKey = key
 		fmt.Println("API key saved to", mustConfigPath())
 	}
-
-	client := typesafe.NewClient(cfg.APIKey, *model)
+	client := newClient(cfg, *model, *refresh)
 
 	// scope 来源优先级：项目 codesafe.yaml > 用户 --config > 筛选缓存/重筛 > 内置默认
 	pc, _ := config.LoadProject(root)

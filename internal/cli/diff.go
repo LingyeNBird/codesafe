@@ -43,6 +43,7 @@ func runDiff(args []string) error {
 		staged   = fs.Bool("staged", false, "check only staged changes")
 		worktree = fs.Bool("worktree", false, "check only unstaged (worktree) changes")
 		detail   = fs.Bool("detail", false, "show per-rule probabilities")
+		refresh  = fs.Bool("refresh", false, "bypass the response cache and re-judge")
 	)
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -63,7 +64,7 @@ func runDiff(args []string) error {
 	if strings.TrimSpace(diff) == "" {
 		return fmt.Errorf("no diff to check")
 	}
-	client := typesafe.NewClient(cfg.APIKey, *model)
+	client := newClient(cfg, *model, *refresh)
 	results, err := scan.CheckRules(context.Background(), client, diff, pc.Rules, todo, pc.TodoMode)
 	if err != nil {
 		return err
@@ -148,4 +149,12 @@ func setup(dir string) (config.Config, config.ProjectConfig, string, error) {
 	cfg, _ := config.Load()
 	pc, _ := config.LoadProject(root)
 	return cfg, pc, root, nil
+}
+
+// newClient 建 typesafe client 并按配置应用缓存开关与 --refresh。
+func newClient(cfg config.Config, model string, refresh bool) *typesafe.Client {
+	c := typesafe.NewClient(cfg.APIKey, model)
+	c.Cache = config.CacheOn(cfg)
+	c.Refresh = refresh
+	return c
 }

@@ -26,6 +26,7 @@ func runDelete(args []string) error {
 	dir := fs.String("dir", ".", "project root directory")
 	model := fs.String("model", "jev-latest", "TypeSafe model ID")
 	yes := fs.Bool("yes", false, "skip the safety verdict and delete immediately")
+	refresh := fs.Bool("refresh", false, "bypass the response cache and re-judge")
 	check := fs.Bool("check", false, "run the verdict but do not delete or move")
 	if err := fs.Parse(reorderFlags(args)); err != nil {
 		return err
@@ -60,7 +61,7 @@ func runDelete(args []string) error {
 	}
 
 	// 三档判定：safe 直接删 / sensitive 移到回收目录 / dangerous 中断
-	client := typesafe.NewClient(cfg.APIKey, *model)
+	client := newClient(cfg, *model, *refresh)
 	verdict, prob, err := judgeDelete(context.Background(), client, root, real)
 	if err != nil {
 		return err

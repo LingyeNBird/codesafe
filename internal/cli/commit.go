@@ -17,7 +17,6 @@ import (
 
 	"codesafe/internal/config"
 	"codesafe/internal/scan"
-	"codesafe/internal/typesafe"
 )
 
 // multiFlag 收集可重复的 -m 参数。
@@ -41,9 +40,10 @@ var prefixRe = regexp.MustCompile(`^([a-zA-Z]+\s*[（(]?[^:：)）]*[)）]?\s*!?
 func runCommit(args []string) error {
 	fs := flag.NewFlagSet("codesafe commit", flag.ContinueOnError)
 	var (
-		dir   = fs.String("dir", ".", "git repo directory")
-		model = fs.String("model", "jev-latest", "TypeSafe model ID")
-		msgs  multiFlag
+		dir     = fs.String("dir", ".", "git repo directory")
+		model   = fs.String("model", "jev-latest", "TypeSafe model ID")
+		refresh = fs.Bool("refresh", false, "bypass the response cache and re-judge")
+		msgs    multiFlag
 	)
 	fs.Var(&msgs, "m", "commit message (repeatable; first is subject, rest are body)")
 	if err := fs.Parse(args); err != nil {
@@ -59,7 +59,7 @@ func runCommit(args []string) error {
 	if cfg.APIKey == "" {
 		return config.ErrNoAPIKey
 	}
-	client := typesafe.NewClient(cfg.APIKey, *model)
+	client := newClient(cfg, *model, *refresh)
 	ctx := context.Background()
 
 	// 原始 commit message（第一个 -m 是 subject 行，其余是 body 段）
