@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 |---|---|
 | `codesafe` | 给暂存/工作区 diff 建议 `type(scope)`（单行，可接进 `git commit -m`）。 |
 | `codesafe commit -m ...` | 校验 message+代码规则 → 生成前缀 → 执行 `git commit`。 |
-| `codesafe diff` | 按 `codesafe.yaml` 的 `rules` 检查 diff，报告违反项。 |
+| `codesafe diff` | 按 `codesafe.yaml` 的 `rules` 检查 diff，报告违反项。过大的 diff 会被截断并提示（拆分提交以获完整检查）；`--pass <glob>` 可豁免文件不送判定。 |
 | `codesafe delete <path>` | 删前判安全性：`safe` 删除、`sensitive` 移回收、`dangerous` 中断。 |
 | `codesafe init` | 生成注释模板 `codesafe.yaml` + 打印给 AI 的配置提示词。 |
 | `codesafe agent` | 打印一段贴进 `AGENTS.md`/`CLAUDE.md` 的规则，让 AI 用 codesafe。 |
@@ -130,6 +130,7 @@ commit_rules:              # 针对 commit message 本身的规则
 ./codesafe --config cache=false             # 关闭响应缓存（bbolt，按请求 SHA-256 为键，1 小时 TTL）
 ./codesafe --set lang=en                   # 单次覆盖，不落盘
 ./codesafe diff --refresh                  # 跳过缓存重新判定一次
+./codesafe diff --pass 'dist/**'          # 跳过匹配 glob 的文件（可重复）——拆分后单文件仍过大时用
 ```
 
 优先级：`codesafe.yaml` > `--config` > 内置/筛选默认。

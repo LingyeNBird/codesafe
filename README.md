@@ -37,7 +37,7 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 |---|---|
 | `codesafe` | Suggest a `type(scope)` for the staged/worktree diff (single line, pipe into `git commit -m`). |
 | `codesafe commit -m ...` | Validate message + code rules, generate the prefix, run `git commit`. |
-| `codesafe diff` | Check the diff against `codesafe.yaml` `rules`; report violations. |
+| `codesafe diff` | Check the diff against `codesafe.yaml` `rules`; report violations. Oversized diffs are truncated and flagged (split the commit for full coverage); `--pass <glob>` exempts files from judgement. |
 | `codesafe delete <path>` | Judge safety before deleting — `safe` deletes, `sensitive` quarantines, `dangerous` aborts. |
 | `codesafe init` | Write a commented `codesafe.yaml` template + print an AI prompt for filling it. |
 | `codesafe agent` | Print a rules block to paste into `AGENTS.md` / `CLAUDE.md` so AI agents use codesafe. |
@@ -128,6 +128,7 @@ Paste the output into your agent rules file so the AI uses `codesafe delete`/`co
 ./codesafe --config cache=false             # disable the response cache (bbolt, keyed by request SHA-256, 1h TTL)
 ./codesafe --set lang=en                   # one-run override, not saved
 ./codesafe diff --refresh                  # bypass cache and re-judge once
+./codesafe diff --pass 'dist/**'          # skip files matching a glob (repeatable) — useful when a single file is still too large after splitting
 ```
 
 Priority: `codesafe.yaml` > `--config` > built-in / screened defaults.
