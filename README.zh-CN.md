@@ -127,7 +127,9 @@ commit_rules:              # 针对 commit message 本身的规则
 ./codesafe --config lang=zh|en
 ./codesafe --config scopes=cli|server|web
 ./codesafe --config nonescope=false
+./codesafe --config cache=false             # 关闭响应缓存（bbolt，按请求 SHA-256 为键，1 小时 TTL）
 ./codesafe --set lang=en                   # 单次覆盖，不落盘
+./codesafe diff --refresh                  # 跳过缓存重新判定一次
 ```
 
 优先级：`codesafe.yaml` > `--config` > 内置/筛选默认。

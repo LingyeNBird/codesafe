@@ -125,7 +125,9 @@ Paste the output into your agent rules file so the AI uses `codesafe delete`/`co
 ./codesafe --config lang=zh|en
 ./codesafe --config scopes=cli|server|web
 ./codesafe --config nonescope=false
+./codesafe --config cache=false             # disable the response cache (bbolt, keyed by request SHA-256, 1h TTL)
 ./codesafe --set lang=en                   # one-run override, not saved
+./codesafe diff --refresh                  # bypass cache and re-judge once
 ```
 
 Priority: `codesafe.yaml` > `--config` > built-in / screened defaults.
