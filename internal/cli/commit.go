@@ -44,8 +44,10 @@ func runCommit(args []string) error {
 		model   = fs.String("model", "jev-latest", "TypeSafe model ID")
 		refresh = fs.Bool("refresh", false, "bypass the response cache and re-judge")
 		msgs    multiFlag
+		passG   multiFlag
 	)
 	fs.Var(&msgs, "m", "commit message (repeatable; first is subject, rest are body)")
+	fs.Var(&passG, "pass", "skip files matching glob (repeatable), e.g. --pass 'dist/**'")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -91,6 +93,7 @@ func runCommit(args []string) error {
 	todo := config.TodoOf(cfg, root)
 	todoMode := config.TodoModeOf(pc.TodoMode)
 	diff, err := scan.StagedDiff(root)
+	diff = scan.ExcludeFiles(diff, passG)
 	if strings.TrimSpace(diff) != "" && (len(pc.Rules) > 0 || todo != "") {
 		res, err := scan.CheckRules(ctx, client, diff, pc.Rules, todo, pc.TodoMode)
 		if err != nil {
@@ -99,6 +102,9 @@ func runCommit(args []string) error {
 		for _, r := range res {
 			if r.Skip {
 				continue
+			}
+			if r.Truncated {
+				fmt.Fprintf(os.Stderr, "%s警告%s diff 过大已截断，仅判定部分文件——建议拆分提交以获得完整检查\n", yellow(), reset())
 			}
 			if r.TodoMissing {
 				return fmt.Errorf("规则 %s 要求设置 TODO（todo_mode=strict），请先 `codesafe todo <任务>`", r.Rule.ID)

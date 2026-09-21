@@ -22,6 +22,7 @@ type RuleResult struct {
 	Prob        float64 // 满足的概率
 	Skip        bool    // files glob 无匹配，或 {{TODO}} 规则但 todo 空（非 strict）
 	TodoMissing bool    // {{TODO}} 规则但 todo 空且 todo_mode=strict → 视为违反
+	Truncated   bool    // diff 过大被截断，判定只覆盖了部分文件
 }
 
 // DiffFiles 从 unified diff 文本提取改动的文件路径（去重、去 a//b/ 前缀）。
@@ -191,7 +192,10 @@ func askRules(ctx context.Context, client *typesafe.Client, diff string, rules [
 	}
 	answers, _, err := client.Evaluate(ctx, diff, qs)
 	if err != nil {
-		if IsTokenLimit(err) && len(rules) > 1 {
+		if !IsTokenLimit(err) {
+			return nil, err
+		}
+		if len(rules) > 1 {
 			// 拆出 description 最长的单独问（最小上下文：规则说明+匹配文件段）
 			i := longestRule(rules)
 			head := rules[i]
@@ -206,7 +210,20 @@ func askRules(ctx context.Context, client *typesafe.Client, diff string, rules [
 			}
 			return append(single, restRes...), nil
 		}
-		return nil, err
+		// 单条规则仍超限：先 narrowDiff 按 files glob 缩到匹配文件段，再截断保底。
+		narrowed := narrowDiff(diff, rules[0])
+		truncated := truncateDiff(narrowed)
+		if truncated == narrowed && narrowed == diff {
+			return nil, err // 截不动也缩不了，放弃
+		}
+		res, err2 := askRules(ctx, client, truncated, rules)
+		if err2 != nil {
+			return nil, err2
+		}
+		for i := range res {
+			res[i].Truncated = true
+		}
+		return res, nil
 	}
 	out := make([]RuleResult, 0, len(rules))
 	for _, r := range rules {
@@ -214,6 +231,76 @@ func askRules(ctx context.Context, client *typesafe.Client, diff string, rules [
 		out = append(out, RuleResult{Rule: r, Pass: a.Noul >= 0.5, Prob: a.Noul})
 	}
 	return out, nil
+}
+
+// truncateDiff 把 diff 截到安全大小：按 "diff --git" 文件段整体取舍，超出上限的段丢弃，
+// 末尾标注截断。约 96k 字符 ≈ 24k token 上限（保守），避免触及 max_tokens_exceeded。
+func truncateDiff(diff string) string {
+	const maxChars = 96000
+	if len(diff) <= maxChars {
+		return diff
+	}
+	var kept []string
+	var cur strings.Builder
+	total := 0
+	flush := func() {
+		if cur.Len() == 0 {
+			return
+		}
+		s := cur.String()
+		if total+len(s) <= maxChars {
+			kept = append(kept, s)
+			total += len(s)
+		}
+		cur.Reset()
+	}
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			flush()
+		}
+		cur.WriteString(line + "\n")
+	}
+	flush()
+	out := strings.Join(kept, "\n")
+	if out == "" {
+		out = diff[:maxChars] // 单文件段就超限 → 硬截
+	}
+	return out + "\n... [diff truncated to fit context]\n"
+}
+
+// ExcludeFiles 从 diff 剔除文件路径匹配任一 glob 的文件段（用户主动豁免，不送判定）。
+func ExcludeFiles(diff string, globs []string) string {
+	if len(globs) == 0 {
+		return diff
+	}
+	var kept []string
+	var cur strings.Builder
+	drop := false
+	flush := func() {
+		if !drop && cur.Len() > 0 {
+			kept = append(kept, cur.String())
+		}
+		cur.Reset()
+	}
+	for _, line := range strings.Split(diff, "\n") {
+		if strings.HasPrefix(line, "diff --git ") {
+			flush()
+			parts := strings.Fields(line)
+			drop = false
+			if len(parts) >= 4 {
+				name := strings.TrimPrefix(parts[3], "b/")
+				for _, g := range globs {
+					if globMatch(g, name) {
+						drop = true
+						break
+					}
+				}
+			}
+		}
+		cur.WriteString(line + "\n")
+	}
+	flush()
+	return strings.Join(kept, "\n")
 }
 
 // ruleNoul 把一条规则转成 noul。带 files 限定时在 instructions 里声明"只评估匹配 glob 的文件"——

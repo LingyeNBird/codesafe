@@ -44,7 +44,9 @@ func runDiff(args []string) error {
 		worktree = fs.Bool("worktree", false, "check only unstaged (worktree) changes")
 		detail   = fs.Bool("detail", false, "show per-rule probabilities")
 		refresh  = fs.Bool("refresh", false, "bypass the response cache and re-judge")
+		passG    = multiFlag{}
 	)
+	fs.Var(&passG, "pass", "skip files matching glob (repeatable), e.g. --pass 'dist/**' --pass '*.min.js'")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -61,6 +63,7 @@ func runDiff(args []string) error {
 	if err != nil {
 		return err
 	}
+	diff = scan.ExcludeFiles(diff, passG)
 	if strings.TrimSpace(diff) == "" {
 		return fmt.Errorf("no diff to check")
 	}
@@ -89,9 +92,13 @@ func pickDiff(root string, staged, worktree bool) (string, error) {
 func printRuleResults(results []scan.RuleResult, lang string, detail bool) {
 	zh := lang == "zh"
 	var fails, warns []scan.RuleResult
+	truncated := false
 	for _, r := range results {
 		if r.Skip {
 			continue
+		}
+		if r.Truncated {
+			truncated = true
 		}
 		if !r.Pass {
 			if r.Rule.Level == "warn" {
@@ -105,6 +112,13 @@ func printRuleResults(results []scan.RuleResult, lang string, detail bool) {
 			} else {
 				fmt.Printf("  %s✓%s %s  %s(%.0f%%)\n", green(), reset(), r.Rule.ID, dim(), r.Prob*100)
 			}
+		}
+	}
+	if truncated {
+		if zh {
+			fmt.Println(yellow() + "⚠ diff 过大已截断，仅判定部分文件——建议拆分提交以获得完整检查" + reset())
+		} else {
+			fmt.Println(yellow() + "⚠ diff too large — truncated, only part of the files judged; split the commit for full coverage" + reset())
 		}
 	}
 	for _, r := range warns {
