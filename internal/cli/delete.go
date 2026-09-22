@@ -90,7 +90,7 @@ func runDelete(args []string) error {
 // 这样 "delete <path> --check" 也能解析 --check。已知取值的 flag(-dir/-model)连带其值前移。
 func reorderFlags(args []string) []string {
 	var flags, pos []string
-	takesVal := map[string]bool{"-dir": true, "--dir": true, "-model": true, "--model": true}
+	takesVal := map[string]bool{"-dir": true, "--dir": true, "-model": true, "--model": true, "-context": true, "--context": true, "-history": true, "--history": true}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if strings.HasPrefix(a, "-") {

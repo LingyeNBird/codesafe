@@ -44,6 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 | `codesafe init` | 生成注释模板 `codesafe.yaml` + 打印给 AI 的配置提示词。 |
 | `codesafe agent` | 打印一段贴进 `AGENTS.md`/`CLAUDE.md` 的规则，让 AI 用 codesafe。 |
 | `codesafe todo <任务>` | 记录当前任务；`commit`/`diff` 会判定 diff 是否实现了它。 |
+| `codesafe intent "<文本>"` | 识别用户意图——要不要动手改代码 + 想要哪类回应（answer/plan/review/execute）。`--json` 输出完整概率向量，`--context` 带上下文。 |
 
 ### 分类（默认）
 
@@ -60,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 ./codesafe commit -m "重构为 conventional-commit 分类器" -m "- 新增 scope 筛选"
 ```
 
-先查 `commit_rules`（如 subject 须中文），再对暂存 diff 查 `rules`，生成前缀后执行 `git commit`。第一个 `-m` 自带的 `type(scope):` 前缀按 `prefix_conflict`（`keep_user`/`override`）决定保留或替换。
+先查 `commit_rules`（如 subject 须中文），再对暂存 diff 查 `rules`，生成前缀后执行 `git commit`。第一个 `-m` 自带的 `type(scope):` 前缀按 `prefix_conflict`（`keep_user`/`override`）决定保留或替换。breaking 不从 diff 推断——用 `codesafe commit --breaking` 显式声明才会加 `!`（如 `feat!`）。
 
 ### 守护式删除
 

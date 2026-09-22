@@ -42,6 +42,7 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 | `codesafe init` | Write a commented `codesafe.yaml` template + print an AI prompt for filling it. |
 | `codesafe agent` | Print a rules block to paste into `AGENTS.md` / `CLAUDE.md` so AI agents use codesafe. |
 | `codesafe todo <task>` | Set the current task; `commit`/`diff` verify the diff implements it. |
+| `codesafe intent "<text>"` | Classify user intent — whether to modify code plus which responses they want (answer/plan/review/execute). `--json` for the full probability vector, `--context` for surrounding context. |
 
 ### Classify (default)
 
@@ -58,7 +59,7 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 ./codesafe commit -m "重构为 conventional-commit 分类器" -m "- 新增 scope 筛选"
 ```
 
-Checks `commit_rules` (e.g. subject must be Chinese), then `rules` against the staged diff, generates the prefix, and runs `git commit`. A self-supplied `type(scope):` prefix in the first `-m` is honored or replaced per `prefix_conflict` (`keep_user` / `override`).
+Checks `commit_rules` (e.g. subject must be Chinese), then `rules` against the staged diff, generates the prefix, and runs `git commit`. A self-supplied `type(scope):` prefix in the first `-m` is honored or replaced per `prefix_conflict` (`keep_user` / `override`). Breaking is never inferred from the diff — declare it explicitly with `codesafe commit --breaking` to append `!` (e.g. `feat!`).
 
 ### Guarded delete
 

@@ -38,6 +38,8 @@ func Run(args []string) error {
 			return runDelete(args[1:])
 		case "todo":
 			return runTodo(args[1:])
+		case "intent":
+			return runIntent(args[1:])
 		}
 	}
 	return runClassify(args)
