@@ -1,0 +1,12 @@
+{
+	"name": "codesafe-pi",
+	"version": "1.0.0",
+	"description": "codesafe extension for Pi/OMP — intent hints, safe commit/delete tools, commit/diff rule checks",
+	"type": "module",
+	"pi": {
+		"extensions": ["./index.ts"]
+	},
+	"omp": {
+		"extensions": ["./index.ts"]
+	}
+}
