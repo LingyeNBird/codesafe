@@ -2,6 +2,7 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
       version:
         description: '版本号（不带 v 前缀，如 0.1.0）'
         required: true
