@@ -37,10 +37,28 @@ refuses, stop and report, never work around it.
    that checks the type(scope) prefix — codesafe generates it, so it is always
    correct. "on: prefix" rules run only under prefix_conflict=keep_user; in
    override mode they are skipped, since the prefix is regenerated anyway.
+   - Breaking change? Pass "--breaking" to mark it — codesafe never infers
+     breaking from the diff; it is the caller's declaration ("feat!").
+   - "codesafe commit --pass '<glob>'" exempts matching files from rule checks
+     (repeatable) — for generated/vendored files too large or out of scope.
 
 3. To check pending changes against project rules, run "codesafe diff". It
    lists which codesafe.yaml rules the diff violates. "--staged" checks staged
    only, "--worktree" unstaged only, default is the whole worktree diff.
+   - "--pass '<glob>'" skips files from judgement; "--refresh" bypasses the
+     response cache (diff/commit results are cached 1h by request hash).
+   - Oversized diffs are truncated with a warning — split the commit for full
+     coverage.
+
+## Intent check (optional)
+
+- "codesafe intent \"<user message>\"" classifies what the user asked for:
+  modify (change code/files), execute (run a command/git op), answer (a reply —
+  explanation, plan, or review; nothing changed), or unclear. Use it when the
+  user's intent is ambiguous and you might otherwise edit code they only wanted
+  to discuss. "--json" gives the full result; "--history '<msg>'" (repeatable)
+  supplies recent messages to disambiguate. When the action is 'answer', the
+  result also reports which of answer/plan/review the user wants.
 
 ## Commit-message suggestion
 
