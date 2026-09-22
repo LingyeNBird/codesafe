@@ -27,6 +27,18 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # 把插件包版本同步到本次发布版本——postinstall 用 package.json.version 拼
+      # release asset 下载 URL，不一致会导致装包时 404。提交并推，让 gh release
+      # 创建的 tag 指向已 bump 的 commit。
+      - name: Bump plugin version
+        shell: bash
+        run: |
+          cd extensions/pi
+          npm version "${{ inputs.version }}" --no-git-tag-version --allow-same-version
+          git add package.json
+          git commit -m "chore(release): bump plugin version to ${{ inputs.version }}" || true
+          git push origin HEAD:${{ github.ref_name }}
       # 构建成带平台名的文件，资产名=文件名；解压/重命名为 codesafe 由用户完成
       - name: Build all platforms
         run: |
@@ -78,3 +90,16 @@ jobs:
             out/codesafe-linux-amd64 \
             out/codesafe-darwin-arm64 \
             out/codesafe-darwin-amd64
+
+      # 插件发到 npm：必须先于本步发好 release（postinstall 按 package.json.version
+      # 从本仓库 releases 下载 CLI 二进制）。NPM_TOKEN 是 repo secret。
+      - name: Setup node for npm publish
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: npm publish
+        working-directory: extensions/pi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
