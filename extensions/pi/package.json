@@ -3,6 +3,10 @@
 	"version": "1.0.0",
 	"description": "codesafe extension for Pi/OMP — intent hints, safe commit/delete tools, commit/diff rule checks",
 	"type": "module",
+	"keywords": ["pi-package", "codesafe", "conventional-commits", "commit-safety"],
+	"files": ["index.ts", "core/", "bin/", "scripts/", "README.md"],
+	"bin": { "codesafe": "./bin/codesafe.js" },
+	"scripts": { "postinstall": "node scripts/postinstall.js" },
 	"pi": {
 		"extensions": ["./index.ts"]
 	},
