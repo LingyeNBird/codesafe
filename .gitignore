@@ -1,5 +1,9 @@
 codesafe.exe
-codesafe
+/codesafe
 *.exe
 *.exe~
 tmp_*/
+# OMP agent dir: don't track session state/caches, but keep extensions/ visible
+# to OMP's gitignore-aware discovery glob.
+.omp/*
+!.omp/extensions/
