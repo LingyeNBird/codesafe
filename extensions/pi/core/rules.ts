@@ -7,6 +7,8 @@
 // diff, batch them into one request, plus the built-in "diff implements TODO"
 // check and the commit-message rule pass.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Config, ProjectConfig, Rule } from "./config";
 import { todoModeOf, todoOf } from "./config";
 import { type Client, type Question, TokenLimitError, noul } from "./typesafe";
@@ -91,6 +93,7 @@ function ruleNoul(r: Rule): Question {
  */
 export async function checkRules(
 	client: Client,
+	root: string,
 	diff: string,
 	rules: Rule[],
 	todo: string,
@@ -113,6 +116,16 @@ export async function checkRules(
 				continue;
 			}
 			r = interpTodo(r, todo);
+		}
+		// A rule with `lines` is judged on the matched files' line ranges, not the
+		// shared diff — read each matching file's lines and ask it standalone.
+		if (r.lines) {
+			if (r.files && !files.some(f => globMatch(r.files as string, f))) {
+				results[id] = { rule: r, pass: true, prob: 0, skip: true };
+			} else {
+				results[id] = await checkLinesRule(client, root, r, files);
+			}
+			continue;
 		}
 		if (r.files && !files.some(f => globMatch(r.files as string, f))) {
 			results[id] = { rule: r, pass: true, prob: 0, skip: true };
@@ -140,6 +153,84 @@ export async function checkRules(
 	}
 	if (todo && results[BUILTIN_TODO_ID]) out.push(results[BUILTIN_TODO_ID]);
 	return out;
+}
+
+/**
+ * Judge a `lines` rule: read the touched files matching `files` glob, extract
+ * the given line ranges, and ask the model on that content (not the shared
+ * diff). Unreadable files (deleted/binary) are skipped; if none read → skip.
+ */
+async function checkLinesRule(client: Client, root: string, r: Rule, files: string[]): Promise<RuleResult> {
+	const ranges = parseLineRanges(r.lines as string);
+	const matched = files.filter(f => !r.files || globMatch(r.files, f));
+	if (matched.length === 0) return { rule: r, pass: true, prob: 0, skip: true };
+	const parts: string[] = [];
+	for (const f of matched) {
+		const seg = extractLines(join(root, f), ranges);
+		if (seg) parts.push(`=== ${f} ===\n${seg}`);
+	}
+	if (parts.length === 0) return { rule: r, pass: true, prob: 0, skip: true };
+	const res = await askRules(client, parts.join("\n"), [r]);
+	return res[0];
+}
+
+/** Parse "1-4,-10--1,7" into 1-based inclusive [start,end] pairs (negatives = from end). Throws on bad input. */
+function parseLineRanges(spec: string): [number, number][] {
+	const out: [number, number][] = [];
+	for (const part of spec.split(",")) {
+		const p = part.trim();
+		if (!p) continue;
+		const ab = splitRange(p);
+		if (!ab) throw new Error(`invalid lines range "${p}" (expected 1-4, -10--1, or a single line like 7)`);
+		out.push(ab);
+	}
+	if (out.length === 0) throw new Error("lines is empty");
+	return out;
+}
+
+/**
+ * Split "1-4" / "-10--1" / "7" into (a,b). A '-' inside (index≥1) is a range
+ * separator; scan right-to-left so the right segment keeps its leading '-'.
+ */
+function splitRange(s: string): [number, number] | null {
+	if (!s.slice(1).includes("-")) {
+		const n = Number(s);
+		return Number.isInteger(n) ? [n, n] : null;
+	}
+	for (let i = s.length - 1; i >= 1; i--) {
+		if (s[i] !== "-") continue;
+		const a = Number(s.slice(0, i));
+		const b = Number(s.slice(i + 1));
+		if (Number.isInteger(a) && Number.isInteger(b)) return [a, b];
+	}
+	return null;
+}
+
+/**
+ * Read a file's given line ranges. Ranges are 1-based inclusive; negatives count
+ * from the end (-1 = last line). Out-of-range parts clamp; returns "" if no
+ * lines or unreadable. Each output line is prefixed "N|".
+ */
+function extractLines(path: string, ranges: [number, number][]): string {
+	let data: string;
+	try {
+		data = readFileSync(path, "utf8");
+	} catch {
+		return "";
+	}
+	const lines = data.split("\n");
+	const total = lines.length;
+	const resolve = (n: number): number => (n < 0 ? total + n : n - 1); // 1-based → 0-based, negative → from end
+	const out: string[] = [];
+	for (const [a, b] of ranges) {
+		let lo = resolve(a);
+		let hi = resolve(b);
+		if (lo > hi) [lo, hi] = [hi, lo];
+		lo = Math.max(0, lo);
+		hi = Math.min(total - 1, hi);
+		for (let i = lo; i <= hi; i++) out.push(`${i + 1}|${lines[i]}`);
+	}
+	return out.join("\n");
 }
 
 /** Batch-ask rules; on token limit split the longest, else narrow+truncate. */

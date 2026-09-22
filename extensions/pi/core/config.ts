@@ -26,6 +26,7 @@ export interface Rule {
 	id?: string;
 	level?: string; // "error" | "warn"
 	files?: string; // glob, e.g. "*.vue"; empty = applies to whole diff
+	lines?: string; // line ranges, e.g. "1-6", "1-4,-10--1" (negatives = from end); when set the rule is judged on the matched files' line content, not the shared diff
 	text?: string; // judgement instructions; may contain {{TODO}}
 	pass?: string;
 	fail?: string;

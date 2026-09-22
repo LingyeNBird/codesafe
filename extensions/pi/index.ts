@@ -235,7 +235,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 			let diff = await stagedDiff(c.root);
 			diff = excludeFiles(diff, params.pass ?? []);
 			if (diff.trim() && ((c.pc.rules?.length ?? 0) > 0 || todo)) {
-				const res = await checkRules(c.client, diff, c.pc.rules ?? [], todo, todoModeOf(c.pc.todo_mode));
+				const res = await checkRules(c.client, c.root, diff, c.pc.rules ?? [], todo, todoModeOf(c.pc.todo_mode));
 				for (const r of res) {
 					if (r.skip) continue;
 					if (r.todoMissing) return text(`rule ${r.rule.id} requires a TODO (todo_mode=strict); set one with codesafe_todo`);
@@ -319,7 +319,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 			diff = excludeFiles(diff, params.pass ?? []);
 			if (!diff.trim()) return text("no changes to check");
 			const todo = todoOf(c.cfg, c.root);
-			const res = await checkRules(c.client, diff, c.pc.rules ?? [], todo, todoModeOf(c.pc.todo_mode));
+			const res = await checkRules(c.client, c.root, diff, c.pc.rules ?? [], todo, todoModeOf(c.pc.todo_mode));
 			const v = formatViolations(res);
 			return text(v || "diff satisfies all rules");
 		},
