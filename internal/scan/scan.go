@@ -16,8 +16,8 @@ import (
 type Result struct {
 	Type      string         `json:"type"`
 	Scope     string         `json:"scope"`
-	Breaking  bool           `json:"breaking"`   // noul ≥0.5 视为破坏兼容
-	BreakingP float64        `json:"breaking_p"` // 破坏兼容的概率
+	Breaking  bool           `json:"breaking"`   // --breaking flag 显式声明（模型不再判定）
+	BreakingP float64        `json:"breaking_p"` // 保留字段，恒 0
 	TypeConf  float64        `json:"type_confidence"`
 	ScopeConf float64        `json:"scope_confidence"`
 	TypeTop   []Cand         `json:"type_top"`
@@ -60,12 +60,9 @@ func Classify(ctx context.Context, client *typesafe.Client, diff string, scopes 
 	}
 	t := answers["type"]
 	s := answers["scope"]
-	bk := answers["breaking"]
 	return Result{
 		Type:      t.Choice,
 		Scope:     s.Choice,
-		Breaking:  bk.Noul >= 0.5,
-		BreakingP: bk.Noul,
 		TypeConf:  t.Confidence,
 		ScopeConf: s.Confidence,
 		TypeTop:   topN(t.Probabilities, 3),

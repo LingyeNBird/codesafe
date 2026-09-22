@@ -69,12 +69,6 @@ func Questions(scopes map[string]string, allowNone bool) map[string]typesafe.Que
 	return map[string]typesafe.Question{
 		"type":  typesafe.Choice("This is a git commit (subject line + diff). Which conventional-commit type best describes the change?", TypeCriteria),
 		"scope": typesafe.Choice("Which project scope does this change mainly affect?", scopes),
-		"breaking": typesafe.Noul(
-			"Does this change break an EXTERNAL contract that downstream consumers actually depend on? Breaking means: removing/renaming a public or exported API, changing a function signature or return type others call, removing or renaming a CLI flag/subcommand, changing a config file format or removing a config key, changing a documented output format (stdout/stderr structure others parse), or changing observable behavior that callers rely on. NOT breaking: internal refactors invisible to callers, renaming private/unexported symbols, changing comments/formatting, additive changes (new flag, new field, new endpoint), bug fixes that restore intended behavior, or changes to code no external party calls. When in doubt about whether anyone depends on it, it is not breaking.",
-			map[string]string{
-				"true":  "The change removes, renames, or alters a public/CLI/config/output contract that external users or callers depend on, in a way that would break them.",
-				"false": "The change is internal, additive, a bug fix, or touches only code no external consumer depends on.",
-			}),
 	}
 }
 

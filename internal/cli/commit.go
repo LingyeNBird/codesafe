@@ -40,11 +40,12 @@ var prefixRe = regexp.MustCompile(`^([a-zA-Z]+\s*[（(]?[^:：)）]*[)）]?\s*!?
 func runCommit(args []string) error {
 	fs := flag.NewFlagSet("codesafe commit", flag.ContinueOnError)
 	var (
-		dir     = fs.String("dir", ".", "git repo directory")
-		model   = fs.String("model", "jev-latest", "TypeSafe model ID")
-		refresh = fs.Bool("refresh", false, "bypass the response cache and re-judge")
-		msgs    multiFlag
-		passG   multiFlag
+		dir      = fs.String("dir", ".", "git repo directory")
+		model    = fs.String("model", "jev-latest", "TypeSafe model ID")
+		refresh  = fs.Bool("refresh", false, "bypass the response cache and re-judge")
+		breaking = fs.Bool("breaking", false, "mark the commit as breaking (appends ! to the type)")
+		msgs     multiFlag
+		passG    multiFlag
 	)
 	fs.Var(&msgs, "m", "commit message (repeatable; first is subject, rest are body)")
 	fs.Var(&passG, "pass", "skip files matching glob (repeatable), e.g. --pass 'dist/**'")
@@ -138,7 +139,12 @@ func runCommit(args []string) error {
 		if err != nil {
 			return err
 		}
+		res.Breaking = *breaking // --breaking 显式声明为破坏性变更（模型不再判定）
 		prefix = res.Suggestion()
+	}
+	// --breaking 也作用于 keep_user 的用户前缀（feat → feat!）
+	if *breaking && !strings.HasSuffix(prefix, "!") {
+		prefix += "!"
 	}
 
 	// 4) 拼接并执行 git commit

@@ -68,19 +68,6 @@ func detailBlock(r scan.Result, lang string) string {
 		confColor(r.ScopeConf), bold, r.Scope, reset, dim, r.ScopeConf*100)
 	b.WriteString(altLabel(zh) + formatCands(r.ScopeTop) + "\n\n")
 
-	// breaking
-	if zh {
-		b.WriteString(bold + "破坏兼容：" + reset)
-	} else {
-		b.WriteString(bold + "Breaking:" + reset + " ")
-	}
-	if r.Breaking {
-		fmt.Fprintf(&b, "%s%sYES%s  %s(%.0f%%)\n", red, bold, reset, dim, r.BreakingP*100)
-	} else {
-		fmt.Fprintf(&b, "%sno%s  %s(%.0f%%)\n", green, reset, dim, r.BreakingP*100)
-	}
-	b.WriteString("\n")
-
 	// final suggestion
 	if zh {
 		fmt.Fprintf(&b, "%s建议:%s %s%s%s\n", cyan, reset, bold, r.Suggestion(), reset)
