@@ -223,6 +223,7 @@ type Rule struct {
 	ID       string `yaml:"id"`
 	Level    string `yaml:"level"`     // error | warn
 	Files    string `yaml:"files"`     // glob，如 "*.vue"；空=对所有 diff 生效
+	Lines    string `yaml:"lines"`     // 行段，如 "1-6"、"1-4,-10--1"（负数=倒数）；设后该规则不走 diff，改喂匹配文件的指定行内容
 	Text     string `yaml:"text"`      // 判定说明（instructions），可含 {{TODO}} 插值
 	Pass     string `yaml:"pass"`      // 满足时的描述
 	Fail     string `yaml:"fail"`      // 违反时的描述

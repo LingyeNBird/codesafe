@@ -61,7 +61,7 @@ curl -fsSL https://raw.githubusercontent.com/LingyeNBird/codesafe/main/install.s
 ./codesafe commit -m "重构为 conventional-commit 分类器" -m "- 新增 scope 筛选"
 ```
 
-先查 `commit_rules`（如 subject 须中文），再对暂存 diff 查 `rules`，生成前缀后执行 `git commit`。第一个 `-m` 自带的 `type(scope):` 前缀按 `prefix_conflict`（`keep_user`/`override`）决定保留或替换。breaking 不从 diff 推断——用 `codesafe commit --breaking` 显式声明才会加 `!`（如 `feat!`）。
+先查 `commit_rules`（如 subject 须中文），再对暂存 diff 查 `rules`，生成前缀后执行 `git commit`。第一个 `-m` 自带的 `type(scope):` 前缀按 `prefix_conflict`（`keep_user`/`override`）决定保留或替换；`--reclassify` 无视已有或畸形前缀、无条件重新生成——**受限参数**：仅在用户明确要求重新生成前缀、或 subject 前缀畸形无法解析时使用，绝不用于推翻你不同意的前缀。用户的提交信息文本也会作为参考上下文喂给分类器。breaking 不从 diff 推断——用 `codesafe commit --breaking` 显式声明才会加 `!`（如 `feat!`）。
 
 ### 守护式删除
 
@@ -102,7 +102,14 @@ rules:                     # 代码规则——对 diff 检查
     text: .vue 文件不得内联 <style> 块，CSS 拆到同名 .css
     pass: 所有 .vue 样式都在外部 .css
     fail: 存在 .vue 内联 <style>
-
+  - id: file-purpose
+    level: error
+    files: "*.go"
+    lines: "1-8"           # 该规则按文件行段判定，不走 diff ——把匹配文件的
+                           # 1-8 行喂给模型。区间:"1-4,-10--1"（负数=倒数），逗号分隔
+    text: 每个 .go 文件顶部必须有注明文件用途的注释
+    pass: 所有改动的 .go 文件顶部都有用途注释
+    fail: 存在 .go 文件缺少顶部用途注释
 commit_rules:              # 针对 commit message 本身的规则
   - id: subject-zh
     on: subject            # subject | body | prefix | all — prefix 仅在 prefix_conflict=keep_user 时生效
@@ -110,6 +117,8 @@ commit_rules:              # 针对 commit message 本身的规则
     pass: subject 主体语言为中文
     fail: subject 不是中文
 ```
+
+带 `lines` 的规则按匹配文件的原始行段判定，不走共享 diff——适合判 diff 看不到的内容（文件头、未改动区域）。`lines` 是逗号分隔的 1 基闭区间；负数从末尾数（`-1`=最后一行），所以 `"1-8"` 读文件头，`"-10--1"` 读最后十行。
 
 不写 `scopes` 时，codesafe 用内置词表对目录树做筛选（项目是 CLI 时 `cli` 这类词会被判"整体即此物"而剔除），结果按项目缓存。
 

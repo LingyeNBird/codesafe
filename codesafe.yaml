@@ -23,15 +23,16 @@ rules:
   - id: file-purpose
     level: error
     files: "*.go"
+    lines: "1-8"
     text: 每个 .go 文件顶部必须有注明文件用途的注释
     pass: 所有新增/修改的 .go 文件顶部都有用途注释
     fail: 存在 .go 文件缺少顶部用途注释
   - id: func-comment
     level: error
     files: "*.go"
-    text: 每个函数必须有注释（小函数单行、大函数多行）
-    pass: 所有函数都有注释
-    fail: 存在无注释的函数
+    text: 每个新增的函数（diff 里 + 开头的 func）必须带注释——注释在函数签名上一行，以 // 开头
+    pass: 所有新增的 func 行其上一行（同为 + 开头）是注释
+    fail: 存在新增的 func 行其上一行不是注释
 
 commit_rules:
   - id: subject-zh

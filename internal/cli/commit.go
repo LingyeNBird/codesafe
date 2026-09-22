@@ -40,12 +40,13 @@ var prefixRe = regexp.MustCompile(`^([a-zA-Z]+\s*[（(]?[^:：)）]*[)）]?\s*!?
 func runCommit(args []string) error {
 	fs := flag.NewFlagSet("codesafe commit", flag.ContinueOnError)
 	var (
-		dir      = fs.String("dir", ".", "git repo directory")
-		model    = fs.String("model", "jev-latest", "TypeSafe model ID")
-		refresh  = fs.Bool("refresh", false, "bypass the response cache and re-judge")
-		breaking = fs.Bool("breaking", false, "mark the commit as breaking (appends ! to the type)")
-		msgs     multiFlag
-		passG    multiFlag
+		dir        = fs.String("dir", ".", "git repo directory")
+		model      = fs.String("model", "jev-latest", "TypeSafe model ID")
+		refresh    = fs.Bool("refresh", false, "bypass the response cache and re-judge")
+		breaking   = fs.Bool("breaking", false, "mark the commit as breaking (appends ! to the type)")
+		reclassify = fs.Bool("reclassify", false, "re-run the type(scope) classifier for the prefix — ignore any existing/malformed prefix on the subject")
+		msgs       multiFlag
+		passG      multiFlag
 	)
 	fs.Var(&msgs, "m", "commit message (repeatable; first is subject, rest are body)")
 	fs.Var(&passG, "pass", "skip files matching glob (repeatable), e.g. --pass 'dist/**'")
@@ -78,15 +79,15 @@ func runCommit(args []string) error {
 	if fail := firstFail(res); fail != nil {
 		return fmt.Errorf("commit message 违反规则 %s: %s", fail.Rule.ID, fail.Rule.Fail)
 	}
-
-	// 前缀处理：先信模型判定有无前缀；有才用正则提取，正则提不出（格式脏）→ 中断。
-	// 这样 "delete 三档判定：xxx" 这类 subject 开头的普通词不会被正则误吃成前缀。
+	// 前缀处理：先信模型判定有无前缀；有才用正则提取，正则提不出（格式脏）→ 中断，
+	// 除非 --reclassify（此时跳过剥离判定，直接重新分类）。剥出的合法前缀在
+	// reclassify 下也照常剥离，避免重新生成后出现双前缀。
 	if modelHasPrefix {
 		if m := prefixRe.FindStringSubmatch(subject); m != nil {
 			userPrefix = normalizePrefix(m[1])
 			subject = strings.TrimSpace(subject[len(m[0]):])
-		} else {
-			return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格）", msgs[0])
+		} else if !*reclassify {
+			return fmt.Errorf("commit subject 看起来带了 type/scope 前缀，但格式不规范无法解析：%q\n请用 `type(scope): ` 或 `type: ` 格式（英文冒号，冒号后一个空格），或用 --reclassify 重新生成前缀", msgs[0])
 		}
 	}
 
@@ -96,7 +97,7 @@ func runCommit(args []string) error {
 	diff, err := scan.StagedDiff(root)
 	diff = scan.ExcludeFiles(diff, passG)
 	if strings.TrimSpace(diff) != "" && (len(pc.Rules) > 0 || todo != "") {
-		res, err := scan.CheckRules(ctx, client, diff, pc.Rules, todo, pc.TodoMode)
+		res, err := scan.CheckRules(ctx, client, root, diff, pc.Rules, todo, pc.TodoMode)
 		if err != nil {
 			return err
 		}
@@ -128,14 +129,14 @@ func runCommit(args []string) error {
 		return fmt.Errorf("todo_mode=strict：必须先 `codesafe todo <任务>` 设置任务再提交")
 	}
 
-	// 3) 生成 type(scope) 前缀（若用户已带前缀且 keep_user，则直接用用户的）
+	// 3) 生成 type(scope) 前缀（若用户已带前缀且 keep_user 且未 --reclassify，则用用户的）
 	var prefix string
-	if userPrefix != "" && pc.PrefixConflict == "keep_user" {
+	if userPrefix != "" && pc.PrefixConflict == "keep_user" && !*reclassify {
 		prefix = userPrefix
 	} else {
 		scopes := resolveScopes(ctx, client, pc, &cfg, root)
 		allowNone := resolveAllowNone(pc, cfg)
-		res, err := scan.Classify(ctx, client, diff, scopes, allowNone)
+		res, err := scan.Classify(ctx, client, diff, scopes, allowNone, subject)
 		if err != nil {
 			return err
 		}

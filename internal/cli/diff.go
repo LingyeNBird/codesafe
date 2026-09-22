@@ -68,7 +68,7 @@ func runDiff(args []string) error {
 		return fmt.Errorf("no diff to check")
 	}
 	client := newClient(cfg, *model, *refresh)
-	results, err := scan.CheckRules(context.Background(), client, diff, pc.Rules, todo, pc.TodoMode)
+	results, err := scan.CheckRules(context.Background(), client, root, diff, pc.Rules, todo, pc.TodoMode)
 	if err != nil {
 		return err
 	}

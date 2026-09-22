@@ -59,7 +59,7 @@ Or grab a binary from [Releases](https://github.com/LingyeNBird/codesafe/release
 ./codesafe commit -m "重构为 conventional-commit 分类器" -m "- 新增 scope 筛选"
 ```
 
-Checks `commit_rules` (e.g. subject must be Chinese), then `rules` against the staged diff, generates the prefix, and runs `git commit`. A self-supplied `type(scope):` prefix in the first `-m` is honored or replaced per `prefix_conflict` (`keep_user` / `override`). Breaking is never inferred from the diff — declare it explicitly with `codesafe commit --breaking` to append `!` (e.g. `feat!`).
+Checks `commit_rules` (e.g. subject must be Chinese), then `rules` against the staged diff, generates the prefix, and runs `git commit`. A self-supplied `type(scope):` prefix in the first `-m` is honored or replaced per `prefix_conflict` (`keep_user` / `override`); `--reclassify` ignores any existing or malformed prefix and regenerates it unconditionally — **restricted**: use only when the user explicitly wants the prefix regenerated or the subject's prefix is malformed, never to override a prefix you merely disagree with. The user's subject text is also fed to the classifier as reference context. Breaking is never inferred from the diff — declare it explicitly with `codesafe commit --breaking` to append `!` (e.g. `feat!`).
 
 ### Guarded delete
 
@@ -100,6 +100,15 @@ rules:                     # code rules — checked against the diff
     text: .vue files must not contain <style> blocks
     pass: all .vue styles live in external .css files
     fail: a .vue file still contains an inline <style> block
+  - id: file-purpose
+    level: error
+    files: "*.go"
+    lines: "1-8"           # judge this rule on file line ranges, not the diff —
+                           # feeds the matched files' lines 1-8 to the model.
+                           # ranges: "1-4,-10--1" (negatives = from end), comma-separated
+    text: every .go file must have a purpose comment at the top
+    pass: all touched .go files have a top purpose comment
+    fail: some .go file lacks a top purpose comment
 
 commit_rules:              # rules about the commit message itself
   - id: subject-zh
@@ -108,6 +117,8 @@ commit_rules:              # rules about the commit message itself
     pass: the subject is primarily Chinese
     fail: the subject is not Chinese
 ```
+
+A rule with `lines` is judged on the matched files' raw line ranges instead of the shared diff — useful for rules about content the diff can't show (file headers, unmodified regions). `lines` is a comma-separated list of 1-based inclusive ranges; negative numbers count from the end (`-1` = last line), so `"1-8"` reads the header, `"-10--1"` reads the last ten lines.
 
 If `scopes` is absent, codesafe screens a built-in vocabulary against your directory tree (a scope like `cli` is dropped when the whole project *is* a CLI) and caches the result per project.
 

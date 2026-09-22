@@ -196,7 +196,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 			message: Type.String({ description: "commit subject line (first -m)" }),
 			body: Type.Optional(Type.String({ description: "optional body paragraphs (additional -m)" })),
 			breaking: Type.Optional(Type.Boolean({ description: "mark as a breaking change (adds !)" })),
-			reclassify: Type.Optional(Type.Boolean({ description: "re-run the type(scope) classifier for the prefix — ignore any existing/malformed prefix on the subject" })),
+			reclassify: Type.Optional(Type.Boolean({ description: "re-run the type(scope) classifier for the prefix — DISCARDS the user's own prefix. Restricted: only when the user explicitly wants the prefix regenerated, or the subject's prefix is malformed/unparseable. Never to override a prefix you merely disagree with." })),
 			pass: Type.Optional(Type.Array(Type.String(), { description: "glob(s) of files to exempt from rule checks" })),
 			dir: dirParam,
 			model: modelParam,

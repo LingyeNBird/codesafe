@@ -8,6 +8,7 @@ package scan
 
 import (
 	"context"
+	"strings"
 
 	"codesafe/internal/typesafe"
 )
@@ -53,8 +54,14 @@ func (r Result) Suggestion() string {
 }
 
 // Classify 对一段 commit diff 做 type+scope+breaking 分类。allowNone 控制 scope 是否可选 none。
-func Classify(ctx context.Context, client *typesafe.Client, diff string, scopes map[string]string, allowNone bool) (Result, error) {
-	answers, usage, err := client.Evaluate(ctx, diff, Questions(scopes, allowNone))
+// subject 是用户 -m 的提交信息文本，作为参考上下文拼在 diff 前（不改变提问文案）。
+func Classify(ctx context.Context, client *typesafe.Client, diff string, scopes map[string]string, allowNone bool, subject string) (Result, error) {
+	// 把用户提交的 subject 作为参考信号置于 diff 前——只加进 state，不改提问。
+	state := diff
+	if s := strings.TrimSpace(subject); s != "" {
+		state = "commit subject (user-provided): \"" + s + "\"\n\n" + diff
+	}
+	answers, usage, err := client.Evaluate(ctx, state, Questions(scopes, allowNone))
 	if err != nil {
 		return Result{}, err
 	}

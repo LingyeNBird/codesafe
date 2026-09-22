@@ -22,7 +22,6 @@ import (
 )
 
 // Run 是 CLI 主流程：分发子命令（diff/commit）或默认的 classify。
-
 func Run(args []string) error {
 	if len(args) > 0 {
 		switch args[0] {
@@ -124,7 +123,7 @@ func runClassify(args []string) error {
 		return fmt.Errorf("no diff found (source=%s): stage changes or pass a commit", *source)
 	}
 
-	res, err := scan.Classify(context.Background(), client, diff, scopes, allowNone)
+	res, err := scan.Classify(context.Background(), client, diff, scopes, allowNone, "")
 	if err != nil {
 		return err
 	}

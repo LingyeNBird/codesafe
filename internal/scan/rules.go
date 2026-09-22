@@ -9,6 +9,9 @@ package scan
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
 	"codesafe/internal/config"
@@ -113,7 +116,7 @@ func wildcard(pat, s string) bool {
 // todo 非空时：{{TODO}} 插值进含占位符的规则 text/pass/fail；并追加一条内建 "diff implements TODO" 判定。
 // todo 空时：含 {{TODO}} 的规则按各自 TodoMode 处理（strict→判失败中断，loose/off→跳过）。
 // 若整批超 max_tokens，把 description 最长的规则拆出单独问，其余重试。
-func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules []config.Rule, todo, globalMode string) ([]RuleResult, error) {
+func CheckRules(ctx context.Context, client *typesafe.Client, root, diff string, rules []config.Rule, todo, globalMode string) ([]RuleResult, error) {
 	files := DiffFiles(diff)
 	var active []config.Rule
 	results := map[string]RuleResult{}
@@ -132,6 +135,19 @@ func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules
 				continue
 			}
 			r = interpTodo(r, todo)
+		}
+		// 带 lines 的规则：不走共享 diff，单独喂匹配文件的指定行段内容
+		if r.Lines != "" {
+			if !matchRule(r, files) {
+				results[r.ID] = RuleResult{Rule: r, Pass: true, Skip: true}
+				continue
+			}
+			res, err := checkLinesRule(ctx, client, root, r, files)
+			if err != nil {
+				return nil, err
+			}
+			results[r.ID] = res
+			continue
 		}
 		if matchRule(r, files) {
 			active = append(active, r)
@@ -174,6 +190,128 @@ func CheckRules(ctx context.Context, client *typesafe.Client, diff string, rules
 	}
 	return out, nil
 }
+
+// checkLinesRule 判一条带 lines 的规则：读取改动文件中匹配 rule.Files 的指定行段，
+// 拼成独立 state（不共享 diff）问模型。匹配文件读不到（如已删除）时跳过该文件；
+// 全部读不到则视为 skip。
+func checkLinesRule(ctx context.Context, client *typesafe.Client, root string, r config.Rule, files []string) (RuleResult, error) {
+	ranges, err := parseLineRanges(r.Lines)
+	if err != nil {
+		return RuleResult{}, fmt.Errorf("rule %s 的 lines 表达式无效: %w", r.ID, err)
+	}
+	var matched []string
+	for _, f := range files {
+		if r.Files == "" || globMatch(r.Files, f) {
+			matched = append(matched, f)
+		}
+	}
+	if len(matched) == 0 {
+		return RuleResult{Rule: r, Pass: true, Skip: true}, nil
+	}
+	var b strings.Builder
+	n := 0
+	for _, f := range matched {
+		seg, err := extractLines(filepath.Join(root, filepath.FromSlash(f)), ranges)
+		if err != nil {
+			continue // 文件读不到（删除/二进制）跳过
+		}
+		if seg == "" {
+			continue
+		}
+		b.WriteString("=== " + f + " ===\n" + seg + "\n")
+		n++
+	}
+	if n == 0 {
+		return RuleResult{Rule: r, Pass: true, Skip: true}, nil
+	}
+	res, err := askRules(ctx, client, b.String(), []config.Rule{r})
+	if err != nil {
+		return RuleResult{}, err
+	}
+	return res[0], nil
+}
+
+// parseLineRanges 解析 "1-4,-10--1,7" 这类区间表达式。
+// 返回 [start,end] 闭区间对（1 基，负数=倒数：-1=最后一行）。
+func parseLineRanges(spec string) ([][2]int, error) {
+	var out [][2]int
+	for _, part := range strings.Split(spec, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		a, b, ok := splitRange(part)
+		if !ok {
+			return nil, fmt.Errorf("无法解析区间 %q（格式 1-4 或 -10--1 或单数字 7）", part)
+		}
+		out = append(out, [2]int{a, b})
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("lines 为空")
+	}
+	return out, nil
+}
+
+// splitRange 把 "1-4"/"-10--1"/"7" 拆成 (a,b)。负号作为值的一部分识别：
+// 形如 "a-b" 且 b 以 '-' 开头时，从后往前找分隔 '-'。
+func splitRange(s string) (int, int, bool) {
+	// 单数字 "7" 或 "-3"
+	if !strings.Contains(s[1:], "-") {
+		if n, err := strconv.Atoi(s); err == nil {
+			return n, n, true
+		}
+		return 0, 0, false
+	}
+	// 找分隔符：从第二个字符起找 '-'，但要保证右段是合法数字。
+	// 试最右边的 '-' 作为分隔（处理 "-10--1"：左="-10" 右="-1"）。
+	for i := len(s) - 1; i >= 1; i-- {
+		if s[i] != '-' {
+			continue
+		}
+		a, err1 := strconv.Atoi(s[:i])
+		b, err2 := strconv.Atoi(s[i+1:])
+		if err1 == nil && err2 == nil {
+			return a, b, true
+		}
+	}
+	return 0, 0, false
+}
+
+// extractLines 读文件的指定行段。range 为 1 基闭区间；负数=倒数（-1=最后一行）。
+// 返回 "N|content" 标注行。区间越界部分自动截断；无有效行返回空串。
+func extractLines(path string, ranges [][2]int) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	lines := strings.Split(string(data), "\n")
+	total := len(lines)
+	// resolve 把 1 基行号（负数=倒数）转成 0 基下标；-1 → total-1。
+	resolve := func(n int) int {
+		if n < 0 {
+			return total + n
+		}
+		return n - 1
+	}
+	var b strings.Builder
+	for _, rg := range ranges {
+		lo, hi := resolve(rg[0]), resolve(rg[1])
+		if lo > hi {
+			lo, hi = hi, lo
+		}
+		if lo < 0 {
+			lo = 0
+		}
+		if hi > total-1 {
+			hi = total - 1
+		}
+		for i := lo; i <= hi; i++ {
+			fmt.Fprintf(&b, "%d|%s\n", i+1, lines[i])
+		}
+	}
+	return b.String(), nil
+}
+
 
 // interpTodo 把规则 text/pass/fail 里的 {{TODO}} 替换为任务文本（引号包裹界定角色，防注入）。
 func interpTodo(r config.Rule, todo string) config.Rule {

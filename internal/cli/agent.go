@@ -39,6 +39,11 @@ refuses, stop and report, never work around it.
    override mode they are skipped, since the prefix is regenerated anyway.
    - Breaking change? Pass "--breaking" to mark it — codesafe never infers
      breaking from the diff; it is the caller's declaration ("feat!").
+   - "codesafe commit --reclassify" regenerates the prefix unconditionally —
+     it DISCARDS the user's own prefix. Restricted: only use when the user
+     explicitly asks to regenerate/override the prefix, or when the subject's
+     prefix is malformed and cannot be parsed. Never use it just because you
+     disagree with the user's chosen type — respect it.
    - "codesafe commit --pass '<glob>'" exempts matching files from rule checks
      (repeatable) — for generated/vendored files too large or out of scope.
 
