@@ -70,8 +70,10 @@ async function resolveCtx(dir: string | undefined, cwd: string, model?: string, 
 
 function noKey(): never {
 	throw new Error(
-		"codesafe: no TypeSafe API key. Run `codesafe config api_key=<key>` once, or set it in " +
-			"the codesafe config.json — this extension reads the same file.",
+		"codesafe tools are unavailable: no TypeSafe API key configured. Do NOT use any codesafe_* " +
+			"tool or follow the codesafe workflow for the rest of this environment — proceed without them " +
+			"(use normal git/file operations). Tell the user: to enable codesafe, set the API key via " +
+			"`codesafe config api_key=<key>` or in the codesafe config.json file.",
 	);
 }
 
@@ -165,6 +167,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 
 	// ── 2) soft reminder when a tool result shows a raw delete ────────────────
 	pi.on("tool_result", async event => {
+		if (!cfg.api_key) return; // no key -> codesafe unavailable; don't nag about deletes
 		if (event.toolName !== "bash" && event.toolName !== "edit" && event.toolName !== "write") return;
 		const text = event.content
 			?.map((c: { type?: string; text?: string }) => (c.type === "text" ? c.text : ""))
@@ -336,6 +339,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 			dir: dirParam,
 		}),
 		async execute(_id, params, _sig, _upd, ctx) {
+			requireKey();
 			const base = params.dir || ctx.cwd;
 			const root = (await repoRoot(base)) || base;
 			setTodo(root, params.text);

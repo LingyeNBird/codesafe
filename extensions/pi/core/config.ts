@@ -44,8 +44,11 @@ export interface ProjectConfig {
 	todo_mode?: string; // off | loose | strict
 }
 
-/** Resolve the user config path: <userConfigDir>/codesafe/config.json. */
+/** Resolve the user config path: CODESAFE_CONFIG env override, else <userConfigDir>/codesafe/config.json. */
 export function configPath(): string {
+	// Explicit override wins — lets users/CI point at a specific config file.
+	const env = process.env.CODESAFE_CONFIG;
+	if (env) return env;
 	// os.UserConfigDir() equivalent: %APPDATA% on Windows, ~/.config on *nix,
 	// ~/Library/Application Support on macOS.
 	const base =

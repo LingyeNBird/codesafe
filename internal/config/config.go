@@ -43,8 +43,12 @@ type ScreenedEntry struct {
 	DirHash string   `json:"dir_hash"` // 目录指纹，变了就重筛
 }
 
-// Path 返回配置文件路径：<os.UserConfigDir>/codesafe/config.json。
+// Path 返回配置文件路径：CODESAFE_CONFIG 环境变量优先，否则 <os.UserConfigDir>/codesafe/config.json。
 func Path() (string, error) {
+	// 显式覆盖优先——用户/CI 可指向指定配置文件。
+	if env := os.Getenv("CODESAFE_CONFIG"); env != "" {
+		return env, nil
+	}
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot locate user config dir: %w", err)
