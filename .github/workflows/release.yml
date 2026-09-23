@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write  # npm Trusted Publishing 需要 OIDC token
 
 jobs:
   release:
@@ -96,18 +97,20 @@ jobs:
             out/codesafe-darwin-arm64 \
             out/codesafe-darwin-amd64
 
-      # 插件发到 npm：必须先于本步发好 release（postinstall 按 package.json.version
-      # 从本仓库 releases 下载 CLI 二进制）。仅在 publish_npm=true 时运行；第一版
-      # 手动发可关掉。NPM_TOKEN 是 repo secret（或迁到 Trusted Publishing 后删除）。
+      # 插件发到 npm：走 Trusted Publishing（OIDC，无 token）。必须先于本步发好
+      # release（postinstall 按 package.json.version 从本仓库 releases 下载 CLI）。
+      # 仅在 publish_npm=true 时运行。npm ≥11.5.1 才支持 trusted publishing，
+      # setup-node 自带的版本可能旧，先升级 npm。
       - name: Setup node for npm publish
         if: ${{ inputs.publish_npm }}
         uses: actions/setup-node@v4
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
+      - name: Upgrade npm for trusted publishing
+        if: ${{ inputs.publish_npm }}
+        run: npm install -g npm@latest
       - name: npm publish
         if: ${{ inputs.publish_npm }}
         working-directory: extensions/pi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
