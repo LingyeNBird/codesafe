@@ -1,6 +1,6 @@
 {
 	"name": "codesafe-pi",
-	"version": "1.4.0",
+	"version": "1.5.0",
 	"description": "codesafe extension for Pi/OMP — intent hints, safe commit/delete tools, commit/diff rule checks",
 	"license": "AGPL-3.0-or-later",
 	"repository": {
