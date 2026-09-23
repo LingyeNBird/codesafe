@@ -40,6 +40,16 @@ declare module "@earendil-works/pi-coding-agent" {
 		notify(message: string, level?: "info" | "warning" | "error"): void;
 		select(message: string, options: string[]): Promise<string | undefined>;
 		confirm(message: string): Promise<boolean>;
+		/** Raw terminal input listener; returns an unsubscribe function. TUI only. */
+		onTerminalInput(handler: (data: string) => { consume?: boolean; data?: string } | undefined | void): () => void;
+		/** Set a widget above/below the editor (string[] or undefined to clear that key). */
+		setWidget(
+			key: string,
+			content: string[] | undefined,
+			options?: { placement?: "aboveEditor" | "belowEditor" },
+		): void;
+		/** Current editor text ("" when empty). */
+		getEditorText(): string;
 	}
 
 	/** Context passed to event handlers / tool execute. */
@@ -50,6 +60,9 @@ declare module "@earendil-works/pi-coding-agent" {
 		mode: "tui" | "rpc" | "json" | "print";
 		isIdle(): boolean;
 		abort(): void;
+		/** OMP-only: session-owned timer, auto-cleared on session_shutdown. */
+		setTimeout?(cb: (...a: unknown[]) => void, ms?: number, ...a: unknown[]): unknown;
+		setInterval?(cb: (...a: unknown[]) => void, ms?: number, ...a: unknown[]): unknown;
 	}
 
 	/** before_agent_start event. systemPrompt is string on Pi, string[] on OMP. */
@@ -105,6 +118,7 @@ declare module "@earendil-works/pi-coding-agent" {
 		on(event: "before_agent_start", h: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>): void;
 		on(event: "tool_result", h: ExtensionHandler<ToolResultEvent, ToolResultEventResult>): void;
 		on(event: "session_start", h: ExtensionHandler<{ type: "session_start" }>): void;
+		on(event: "session_shutdown", h: ExtensionHandler<{ type: "session_shutdown" }>): void;
 		on(event: string, h: ExtensionHandler<unknown, unknown>): void;
 		registerTool<TParams extends TSchema, TDetails = unknown>(tool: ToolDefinition<TParams, TDetails>): void;
 		registerCommand(

@@ -387,6 +387,123 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 			return text(JSON.stringify(res));
 		},
 	});
+
+	// ── 9) idle intent widget (7s idle → classify → show above editor) ─────────
+	const WIDGET_KEY = "codesafe-intent";
+	const IDLE_MS = 7000;
+
+	// Session-scoped state (memory only; re-enabled on every restart).
+	let idleEnabled = true;
+	let uiRef: ExtensionContext["ui"] | undefined;
+	let idleTimer: unknown;
+	let unsubscribeInput: (() => void) | undefined;
+	let lastClassified = "";
+	let inflight = 0; // generation counter; the latest response wins
+	let ctxClearTimer: ((t: unknown) => void) | undefined; // OMP managed clearTimer, if present
+
+	const ACTION_LABEL: Record<string, string> = {
+		modify: "修改",
+		execute: "执行",
+		unclear: "不明确",
+	};
+	const ANSWER_LABEL: Record<string, string> = {
+		answer: "回答",
+		plan: "方案",
+		review: "审查",
+	};
+
+	function intentWidgetText(r: { action: string; primary: string }): string {
+		const sub = r.primary.startsWith("answer:")
+			? (ANSWER_LABEL[r.primary.slice(7)] ?? r.primary.slice(7))
+			: undefined;
+		return `意图: ${sub ?? ACTION_LABEL[r.action] ?? r.action}`;
+	}
+
+	function clearIdleTimer(): void {
+		if (idleTimer !== undefined) {
+			if (ctxClearTimer) ctxClearTimer(idleTimer);
+			else clearTimeout(idleTimer as Parameters<typeof clearTimeout>[0]);
+			idleTimer = undefined;
+		}
+	}
+
+	function teardownIdleWatch(): void {
+		clearIdleTimer();
+		unsubscribeInput?.();
+		unsubscribeInput = undefined;
+		ctxClearTimer = undefined;
+		// The only place the widget is cleared: explicit off / shutdown.
+		uiRef?.setWidget(WIDGET_KEY, undefined);
+	}
+
+	function setupIdleWatch(ctx: ExtensionContext): void {
+		if (ctx.mode !== "tui" || !ctx.hasUI) return;
+		uiRef = ctx.ui;
+		// OMP exposes session-owned managed timers (throw-safe, auto-cleared on
+		// shutdown); Pi does not — fall back to the global timer there.
+		const defer =
+			(ctx.setTimeout as typeof setTimeout | undefined)?.bind(ctx) ?? setTimeout;
+		ctxClearTimer = (ctx as { clearTimer?: (t: unknown) => void }).clearTimer?.bind(ctx);
+
+		unsubscribeInput = ctx.ui.onTerminalInput(() => {
+			if (!idleEnabled) return;
+			clearIdleTimer();
+			idleTimer = defer(async () => {
+				const text = uiRef?.getEditorText() ?? "";
+				if (!text.trim() || text === lastClassified || !cfg.api_key) return;
+				lastClassified = text;
+				const gen = ++inflight;
+				try {
+					const r = await classifyIntent(makeClient(cfg), text, {});
+					// Latest response wins; an earlier late response is skipped.
+					if (gen === inflight && idleEnabled) {
+						uiRef?.setWidget(WIDGET_KEY, [intentWidgetText(r)]);
+					}
+				} catch {
+					/* silent: keep prior widget content */
+				}
+			}, IDLE_MS);
+			return undefined; // observe only — never consume or rewrite input
+		});
+	}
+
+	pi.on("session_start", (_e, ctx) => {
+		if (idleEnabled) setupIdleWatch(ctx);
+	});
+
+	pi.on("session_shutdown", () => {
+		teardownIdleWatch();
+		uiRef = undefined;
+		lastClassified = "";
+		inflight = 0;
+	});
+
+	pi.registerCommand("codesafe-intent", {
+		description: "Toggle the idle-intent widget above the editor: /codesafe-intent on|off",
+		handler(args, ctx) {
+			const a = args.trim().toLowerCase();
+			if (a === "on") {
+				if (!idleEnabled) {
+					idleEnabled = true;
+					setupIdleWatch(ctx);
+				}
+				ctx.ui.notify("codesafe intent widget: on", "info");
+				return;
+			}
+			if (a === "off") {
+				if (idleEnabled) {
+					idleEnabled = false;
+					teardownIdleWatch();
+				}
+				ctx.ui.notify("codesafe intent widget: off", "info");
+				return;
+			}
+			ctx.ui.notify(
+				`codesafe intent widget is ${idleEnabled ? "on" : "off"} — use /codesafe-intent on|off`,
+				"info",
+			);
+		},
+	});
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
