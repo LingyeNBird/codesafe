@@ -388,9 +388,9 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── 9) idle intent widget (7s idle → classify → show above editor) ─────────
+	// ── 9) idle intent widget (5s idle → classify → show above editor) ─────────
 	const WIDGET_KEY = "codesafe-intent";
-	const IDLE_MS = 7000;
+	let idleMs = 5000; // idle delay ms; session-scoped, adjustable via /codesafe-intent <seconds>
 
 	// Session-scoped state (memory only; re-enabled on every restart).
 	let idleEnabled = true;
@@ -404,6 +404,7 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 	const ACTION_LABEL: Record<string, string> = {
 		modify: "修改",
 		execute: "执行",
+		answer: "回复",
 		unclear: "不明确",
 	};
 	const ANSWER_LABEL: Record<string, string> = {
@@ -412,11 +413,15 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 		review: "审查",
 	};
 
-	function intentWidgetText(r: { action: string; primary: string }): string {
-		const sub = r.primary.startsWith("answer:")
-			? (ANSWER_LABEL[r.primary.slice(7)] ?? r.primary.slice(7))
-			: undefined;
-		return `意图: ${sub ?? ACTION_LABEL[r.action] ?? r.action}`;
+	function intentWidgetLines(r: { action: string; actionP: number; primary: string; intents: Record<string, number> }): string[] {
+		const pct = (p: number) => `${Math.round(p * 100)}%`;
+		const main = `意图: ${ACTION_LABEL[r.action] ?? r.action} ${pct(r.actionP)}`;
+		if (r.action !== "answer") return [main];
+		// answer intent: expand the reply-kind breakdown with per-kind percentages.
+		const parts = (["answer", "plan", "review"] as const)
+			.filter(k => r.intents[k] !== undefined)
+			.map(k => `${ANSWER_LABEL[k]} ${pct(r.intents[k]!)}`);
+		return parts.length > 0 ? [main, `回复: ${parts.join(" / ")}`] : [main];
 	}
 
 	function clearIdleTimer(): void {
@@ -457,12 +462,12 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 					const r = await classifyIntent(makeClient(cfg), text, {});
 					// Latest response wins; an earlier late response is skipped.
 					if (gen === inflight && idleEnabled) {
-						uiRef?.setWidget(WIDGET_KEY, [intentWidgetText(r)]);
+						uiRef?.setWidget(WIDGET_KEY, intentWidgetLines(r));
 					}
 				} catch {
 					/* silent: keep prior widget content */
 				}
-			}, IDLE_MS);
+			}, idleMs);
 			return undefined; // observe only — never consume or rewrite input
 		});
 	}
@@ -479,7 +484,8 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("codesafe-intent", {
-		description: "Toggle the idle-intent widget above the editor: /codesafe-intent on|off",
+		description:
+			"Idle-intent widget above the editor: /codesafe-intent on|off|<seconds> — set idle delay with a number",
 		handler(args, ctx) {
 			const a = args.trim().toLowerCase();
 			if (a === "on") {
@@ -498,8 +504,15 @@ export default function codesafeExtension(pi: ExtensionAPI): void {
 				ctx.ui.notify("codesafe intent widget: off", "info");
 				return;
 			}
+			// Numeric subcommand: set the idle delay in seconds.
+			const secs = Number(a);
+			if (a !== "" && Number.isFinite(secs) && secs > 0) {
+				idleMs = Math.round(secs * 1000);
+				ctx.ui.notify(`codesafe intent idle delay: ${secs}s`, "info");
+				return;
+			}
 			ctx.ui.notify(
-				`codesafe intent widget is ${idleEnabled ? "on" : "off"} — use /codesafe-intent on|off`,
+				`codesafe intent widget is ${idleEnabled ? "on" : "off"}, idle ${idleMs / 1000}s — /codesafe-intent on|off|<seconds>`,
 				"info",
 			);
 		},
